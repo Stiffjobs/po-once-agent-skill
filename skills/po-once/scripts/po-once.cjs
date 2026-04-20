@@ -7,6 +7,8 @@ const os = require('os');
 const DEV_BASE_URL = 'https://dynamic-lapwing-647.convex.site';
 const DEFAULT_BASE_URL = 'https://fastidious-elephant-379.convex.site';
 const DEV_API_KEY_PREFIX = 'po_test_org_';
+const SKILL_SCRIPT_PATH = '<skill-path>/scripts/po-once.cjs';
+const RELATIVE_SCRIPT_PATH_NOTE = './scripts/po-once.cjs (relative to the skill directory)';
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'po-once');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 const LOCAL_CONFIG = path.join(process.cwd(), '.po-once', 'config.json');
@@ -104,6 +106,10 @@ function info(message) {
   console.error(`\x1b[36mInfo:\x1b[0m ${message}`);
 }
 
+function usage(command) {
+  return `${SKILL_SCRIPT_PATH} ${command}`;
+}
+
 function parseArgs(args) {
   const parsed = {};
   for (let index = 0; index < args.length; index += 1) {
@@ -188,7 +194,7 @@ function inferPostType(filePaths) {
 async function request(method, endpoint, body) {
   const config = getConfig();
   if (!config || !config.baseUrl || !config.apiKey) {
-    error('Missing Po Once credentials. Run: ./scripts/po-once.cjs setup --api-key <api_key>');
+    error(`Missing Po Once credentials. Run: ${usage('setup --api-key <api_key>')} or use ${RELATIVE_SCRIPT_PATH_NOTE}.`);
     process.exit(1);
   }
 
@@ -220,7 +226,7 @@ async function request(method, endpoint, body) {
 async function uploadFile(filePath) {
   const config = getConfig();
   if (!config || !config.baseUrl || !config.apiKey) {
-    error('Missing Po Once credentials. Run: ./scripts/po-once.cjs setup --api-key <api_key>');
+    error(`Missing Po Once credentials. Run: ${usage('setup --api-key <api_key>')} or use ${RELATIVE_SCRIPT_PATH_NOTE}.`);
     process.exit(1);
   }
 
@@ -313,7 +319,7 @@ const COMMANDS = {
     const parsed = parseArgs(args);
     const apiKey = parsed['api-key'];
     if (!apiKey) {
-      throw new Error(`Usage: ./scripts/po-once.cjs setup --api-key <api_key> [--base-url ${DEFAULT_BASE_URL}]`);
+      throw new Error(`Usage: ${usage(`setup --api-key <api_key> [--base-url ${DEFAULT_BASE_URL}]`)}`);
     }
     const baseUrl = resolveBaseUrl(parsed['base-url'], apiKey);
     const global = !parsed.local;
@@ -328,7 +334,7 @@ const COMMANDS = {
   accounts: async () => output(await request('GET', '/api/agent/v1/accounts')),
   upload: async (args) => {
     const parsed = parseArgs(args);
-    if (!parsed.file) throw new Error('Usage: ./scripts/po-once.cjs upload --file ./clip.mp4');
+    if (!parsed.file) throw new Error(`Usage: ${usage('upload --file ./clip.mp4')}`);
     output(await uploadFile(parsed.file));
   },
   'content:create': async (args) => {
@@ -379,18 +385,22 @@ const COMMANDS = {
   },
   'posts:get': async (args) => {
     const parsed = parseArgs(args);
-    if (!parsed.id) throw new Error('Usage: ./scripts/po-once.cjs posts:get --id <post_id>');
+    if (!parsed.id) throw new Error(`Usage: ${usage('posts:get --id <post_id>')}`);
     output(await request('GET', `/api/agent/v1/posts/${parsed.id}`));
   },
   'posts:delete': async (args) => {
     const parsed = parseArgs(args);
-    if (!parsed.id) throw new Error('Usage: ./scripts/po-once.cjs posts:delete --id <post_id>');
+    if (!parsed.id) throw new Error(`Usage: ${usage('posts:delete --id <post_id>')}`);
     output(await request('DELETE', `/api/agent/v1/posts/${parsed.id}`));
   },
   help: async () => output({
     name: 'Po Once Agent API Skill',
+    scriptPath: SKILL_SCRIPT_PATH,
+    relativeScriptPath: RELATIVE_SCRIPT_PATH_NOTE,
     commands: Object.keys(COMMANDS).filter((command) => command !== 'help'),
     defaultBaseUrl: DEFAULT_BASE_URL,
+    testBaseUrl: DEV_BASE_URL,
+    testKeyPrefix: DEV_API_KEY_PREFIX,
     env: ['PO_ONCE_BASE_URL', 'PO_ONCE_AGENT_API_KEY'],
   }),
 };
