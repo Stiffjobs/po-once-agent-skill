@@ -1,5 +1,5 @@
 ---
-name: po-once-agent-api
+name: po-once
 description: >
   Use Po Once's organization-scoped agent API to list connected accounts, upload
   media, create content, schedule or publish posts, inspect status, and delete
@@ -8,7 +8,7 @@ last-updated: 2026-04-16
 allowed-tools: Bash(./scripts/po-once.cjs:*)
 ---
 
-# Po Once Agent API Skill
+# Po Once Skill
 
 Portable skill bundle for AI agents to automate Po Once through the agent API.
 
