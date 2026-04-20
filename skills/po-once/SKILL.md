@@ -14,10 +14,16 @@ Portable skill bundle for AI agents to automate Po Once through the agent API.
 
 ## Setup
 
-Create an API key in Po Once and run:
+Create an API key in Po Once and run the bundled setup command:
 
 ```bash
 ./scripts/po-once.cjs setup --api-key po_once_org_<secret>
+```
+
+If setup is needed and you are invoking the script without first switching into the skill directory, run:
+
+```bash
+<skill-path>/scripts/po-once.cjs setup --api-key po_once_org_<secret>
 ```
 
 Default base URL:
@@ -33,6 +39,8 @@ Override it if needed:
   --api-key po_once_org_<secret> \
   --base-url https://your-other-convex-host.convex.site
 ```
+
+**Note for agents**: All script paths in this document are relative to the directory where this `SKILL.md` is installed. For example, `./scripts/po-once.cjs` refers to the script bundled with this skill, not a repository-root `./scripts/po-once.cjs`. Resolve paths from the installed skill directory.
 
 ## Commands
 
