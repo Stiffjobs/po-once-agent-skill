@@ -26,11 +26,12 @@ If setup is needed and you are invoking the script without first switching into 
 <skill-path>/scripts/po-once.cjs setup --api-key po_once_org_<secret>
 ```
 
-Default base URL:
+Base URL selection:
 
-```text
-https://dynamic-lapwing-647.convex.site
-```
+- Keys starting with `po_test_org_` use the test base URL: `https://dynamic-lapwing-647.convex.site`
+- All other org keys, including normal `po_once_org_...` keys, use the production base URL: `https://fastidious-elephant-379.convex.site`
+
+The setup command infers the environment from the API key prefix unless you pass `--base-url` explicitly.
 
 Override it if needed:
 
