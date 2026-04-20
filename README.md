@@ -54,12 +54,6 @@ po-once-agent-skill/
 ./skills/po-once/scripts/po-once.cjs accounts
 ```
 
-Default base URL:
-
-```text
-https://dynamic-lapwing-647.convex.site
-```
-
 ## Example
 
 ```bash
