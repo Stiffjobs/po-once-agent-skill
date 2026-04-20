@@ -4,7 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const DEFAULT_BASE_URL = 'https://dynamic-lapwing-647.convex.site';
+const DEV_BASE_URL = 'https://dynamic-lapwing-647.convex.site';
+const DEFAULT_BASE_URL = 'https://fastidious-elephant-379.convex.site';
+const DEV_API_KEY_PREFIX = 'po_test_org_';
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'po-once');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 const LOCAL_CONFIG = path.join(process.cwd(), '.po-once', 'config.json');
@@ -27,10 +29,20 @@ function normalizeBaseUrl(baseUrl) {
   return baseUrl.replace(/\/+$/, '');
 }
 
+function inferBaseUrlFromApiKey(apiKey) {
+  if (typeof apiKey !== 'string' || apiKey.length === 0) return DEFAULT_BASE_URL;
+  if (apiKey.startsWith(DEV_API_KEY_PREFIX)) return DEV_BASE_URL;
+  return DEFAULT_BASE_URL;
+}
+
+function resolveBaseUrl(baseUrl, apiKey) {
+  return normalizeBaseUrl(baseUrl || inferBaseUrlFromApiKey(apiKey));
+}
+
 function getConfig() {
   if (process.env.PO_ONCE_AGENT_API_KEY) {
     return {
-      baseUrl: normalizeBaseUrl(process.env.PO_ONCE_BASE_URL || DEFAULT_BASE_URL),
+      baseUrl: resolveBaseUrl(process.env.PO_ONCE_BASE_URL, process.env.PO_ONCE_AGENT_API_KEY),
       apiKey: process.env.PO_ONCE_AGENT_API_KEY,
       source: 'env',
     };
@@ -40,7 +52,7 @@ function getConfig() {
     const local = readJson(LOCAL_CONFIG);
     if (local && local.apiKey) {
       return {
-        baseUrl: normalizeBaseUrl(local.baseUrl || DEFAULT_BASE_URL),
+        baseUrl: resolveBaseUrl(local.baseUrl, local.apiKey),
         apiKey: local.apiKey,
         source: 'local',
       };
@@ -51,7 +63,7 @@ function getConfig() {
     const global = readJson(CONFIG_FILE);
     if (global && global.apiKey) {
       return {
-        baseUrl: normalizeBaseUrl(global.baseUrl || DEFAULT_BASE_URL),
+        baseUrl: resolveBaseUrl(global.baseUrl, global.apiKey),
         apiKey: global.apiKey,
         source: 'global',
       };
@@ -64,10 +76,11 @@ function getConfig() {
 function saveConfig(nextConfig, global = true) {
   const filePath = global ? CONFIG_FILE : LOCAL_CONFIG;
   const existing = readJson(filePath) || {};
+  const apiKey = nextConfig.apiKey || existing.apiKey;
   const merged = {
     ...existing,
     ...nextConfig,
-    baseUrl: normalizeBaseUrl(nextConfig.baseUrl || existing.baseUrl || DEFAULT_BASE_URL),
+    baseUrl: resolveBaseUrl(nextConfig.baseUrl || existing.baseUrl, apiKey),
   };
   writeJson(filePath, merged);
   return filePath;
@@ -175,7 +188,7 @@ function inferPostType(filePaths) {
 async function request(method, endpoint, body) {
   const config = getConfig();
   if (!config || !config.baseUrl || !config.apiKey) {
-    error('Missing Po Once credentials. Run: ./scripts/po-once.cjs setup --api-key po_once_org_<secret>');
+    error('Missing Po Once credentials. Run: ./scripts/po-once.cjs setup --api-key <api_key>');
     process.exit(1);
   }
 
@@ -207,7 +220,7 @@ async function request(method, endpoint, body) {
 async function uploadFile(filePath) {
   const config = getConfig();
   if (!config || !config.baseUrl || !config.apiKey) {
-    error('Missing Po Once credentials. Run: ./scripts/po-once.cjs setup --api-key po_once_org_<secret>');
+    error('Missing Po Once credentials. Run: ./scripts/po-once.cjs setup --api-key <api_key>');
     process.exit(1);
   }
 
@@ -298,11 +311,11 @@ function buildPostPayload(parsed) {
 const COMMANDS = {
   setup: async (args) => {
     const parsed = parseArgs(args);
-    const baseUrl = normalizeBaseUrl(parsed['base-url'] || DEFAULT_BASE_URL);
     const apiKey = parsed['api-key'];
     if (!apiKey) {
-      throw new Error(`Usage: ./scripts/po-once.cjs setup --api-key po_once_org_<secret> [--base-url ${DEFAULT_BASE_URL}]`);
+      throw new Error(`Usage: ./scripts/po-once.cjs setup --api-key <api_key> [--base-url ${DEFAULT_BASE_URL}]`);
     }
+    const baseUrl = resolveBaseUrl(parsed['base-url'], apiKey);
     const global = !parsed.local;
     const filePath = saveConfig({ baseUrl, apiKey }, global);
     info(`Config saved ${global ? 'globally' : 'locally'} at ${filePath}.`);
