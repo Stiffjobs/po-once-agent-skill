@@ -371,6 +371,29 @@ function summarizePostStatus(post, fallbackId) {
   });
 }
 
+function summarizeDeleteEligibility(post, fallbackId) {
+  if (!post || typeof post !== 'object') return { id: fallbackId };
+
+  return pickDefinedFields({
+    id: post.id || post.postId || fallbackId,
+    type: post.type,
+    status: post.status,
+  });
+}
+
+function assertPostDeleteEligible(post, fallbackId) {
+  if (!post || typeof post !== 'object') {
+    throw new Error('Unable to confirm post state. Only scheduled posts that are still in scheduled status can be deleted.');
+  }
+
+  if (post.type === 'scheduled' && post.status === 'scheduled') return;
+
+  const summary = summarizeDeleteEligibility(post, fallbackId);
+  throw new Error(
+    `Refusing to delete post ${summary.id || fallbackId}. Only scheduled posts that are still in scheduled status can be deleted.${summary.type || summary.status ? ` Current state: ${JSON.stringify(summary)}.` : ''}`,
+  );
+}
+
 function parseInteger(value, fieldName) {
   if (value === undefined) return undefined;
   const number = Number(value);
@@ -768,6 +791,8 @@ const COMMANDS = {
   'posts:delete': async (args) => {
     const parsed = parseArgs(args);
     if (!parsed.id) throw new Error(`Usage: ${usage('posts:delete --id <post_id>')}`);
+    const post = await request('GET', `/api/agent/v1/posts/${parsed.id}`);
+    assertPostDeleteEligible(post, parsed.id);
     output(await request('DELETE', `/api/agent/v1/posts/${parsed.id}`));
   },
   help: async () => output({

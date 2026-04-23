@@ -3,8 +3,8 @@ name: po-once
 description: >
   Use Po Once's organization-scoped agent API to list connected accounts, upload
   media, create content, schedule or publish posts, inspect status, and delete
-  eligible posts through a local helper script.
-last-updated: 2026-04-23
+  eligible scheduled posts through a local helper script.
+last-updated: 2026-04-24
 allowed-tools: Bash(./scripts/po-once.cjs:*)
 ---
 
@@ -78,7 +78,7 @@ PO_ONCE_CONFIG_PATH=/absolute/path/to/config.json ./scripts/po-once.cjs accounts
 | `./scripts/po-once.cjs posts --limit 20 --status scheduled` | List posts |
 | `./scripts/po-once.cjs posts:get --id <post_id>` | Get one post |
 | `./scripts/po-once.cjs posts:get --id <post_id> --status-only` | Get a minimal status view for one post |
-| `./scripts/po-once.cjs posts:delete --id <post_id>` | Delete eligible post |
+| `./scripts/po-once.cjs posts:delete --id <post_id>` | Delete an eligible scheduled post |
 
 ## Account IDs
 
@@ -109,6 +109,7 @@ The helper script wraps these endpoints:
 5. Use `publish` for the normal end-to-end path.
 6. Use `posts` or `posts:get --status-only` to confirm status.
 7. Only use `posts:delete` when the user explicitly wants a scheduled post removed.
+8. Before deleting, inspect the post first and confirm both `type === "scheduled"` and `status === "scheduled"`.
 
 ## Safety Notes
 
@@ -117,4 +118,7 @@ The helper script wraps these endpoints:
 - Prefer scheduled posting unless the user clearly wants immediate publishing.
 - Results are scoped to the organization tied to the token.
 - If the API returns `SUBSCRIPTION_REQUIRED`, stop and ask the user to upgrade the organization to an active Starter or Pro plan, or switch organizations.
-- Some posts cannot be deleted once processing has started.
+- Only delete a post when both `type === "scheduled"` and `status === "scheduled"`.
+- Before calling `DELETE /api/agent/v1/posts/:id`, inspect the post first to confirm it is still scheduled and has not started processing.
+- Do not delete direct posts, published posts, failed posts, errored posts, posts already processing, or any post with another `type` or `status`.
+- If the post is not still `scheduled`/`scheduled`, do not call delete and tell the user that only scheduled posts that are still in `scheduled` status can be deleted.
