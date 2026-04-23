@@ -88,61 +88,97 @@ function resolveSavedBaseUrl(config) {
   };
 }
 
-function createConfig({ apiKey, baseUrl, baseUrlCandidates, source, baseUrlSource }) {
+function createConfig({ apiKey, baseUrl, baseUrlCandidates, source, baseUrlSource, configPath }) {
   return {
     apiKey,
     baseUrl,
     baseUrlCandidates: baseUrlCandidates || [baseUrl],
     source,
     baseUrlSource,
+    configPath,
   };
 }
 
-function getConfig() {
+function getRuntimeParsedArgs() {
+  return parseArgs(process.argv.slice(3));
+}
+
+function getExplicitConfigPath(parsed = getRuntimeParsedArgs()) {
+  const explicitPath = parsed.config || process.env.PO_ONCE_CONFIG_PATH;
+  return explicitPath ? path.resolve(explicitPath) : null;
+}
+
+function findNearestLocalConfig(startDir = process.cwd()) {
+  let current = path.resolve(startDir);
+
+  while (true) {
+    const candidate = path.join(current, '.po-once', 'config.json');
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+function loadSavedConfig(filePath, source) {
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  const saved = readJson(filePath);
+  if (!saved || !saved.apiKey) return null;
+
+  const resolved = resolveSavedBaseUrl(saved);
+  return {
+    ...createConfig({
+      apiKey: saved.apiKey,
+      baseUrl: resolved.baseUrl,
+      baseUrlCandidates: resolved.baseUrlCandidates,
+      source,
+      baseUrlSource: resolved.baseUrlSource,
+      configPath: filePath,
+    }),
+  };
+}
+
+function loadExplicitConfig(filePath) {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Explicit config file not found: ${filePath}`);
+  }
+
+  const config = loadSavedConfig(filePath, 'explicit');
+  if (!config) {
+    throw new Error(`Explicit config file must be valid JSON with an apiKey: ${filePath}`);
+  }
+
+  return config;
+}
+
+function getConfig(parsed = getRuntimeParsedArgs()) {
   if (process.env.PO_ONCE_AGENT_API_KEY) {
     const resolved = buildBaseUrlCandidates(process.env.PO_ONCE_BASE_URL, process.env.PO_ONCE_AGENT_API_KEY);
     return createConfig({
       apiKey: process.env.PO_ONCE_AGENT_API_KEY,
       baseUrl: resolved.baseUrl,
       baseUrlCandidates: resolved.baseUrlCandidates,
-      source: 'env',
-      baseUrlSource: resolved.baseUrlSource,
-    });
-  }
-
-  if (fs.existsSync(LOCAL_CONFIG)) {
-    const local = readJson(LOCAL_CONFIG);
-    if (local && local.apiKey) {
-      const resolved = resolveSavedBaseUrl(local);
-      return createConfig({
-        apiKey: local.apiKey,
-        baseUrl: resolved.baseUrl,
-        baseUrlCandidates: resolved.baseUrlCandidates,
-        source: 'local',
+        source: 'env',
         baseUrlSource: resolved.baseUrlSource,
       });
-    }
   }
 
-  if (fs.existsSync(CONFIG_FILE)) {
-    const global = readJson(CONFIG_FILE);
-    if (global && global.apiKey) {
-      const resolved = resolveSavedBaseUrl(global);
-      return createConfig({
-        apiKey: global.apiKey,
-        baseUrl: resolved.baseUrl,
-        baseUrlCandidates: resolved.baseUrlCandidates,
-        source: 'global',
-        baseUrlSource: resolved.baseUrlSource,
-      });
-    }
+  const explicitConfigPath = getExplicitConfigPath(parsed);
+  if (explicitConfigPath) {
+    return loadExplicitConfig(explicitConfigPath);
   }
+
+  const localConfig = loadSavedConfig(findNearestLocalConfig(), 'local');
+  if (localConfig) return localConfig;
+
+  const globalConfig = loadSavedConfig(CONFIG_FILE, 'global');
+  if (globalConfig) return globalConfig;
 
   return null;
 }
 
-function saveConfig(nextConfig, global = true) {
-  const filePath = global ? CONFIG_FILE : LOCAL_CONFIG;
+function saveConfig(nextConfig, global = true, parsed = getRuntimeParsedArgs()) {
+  const filePath = getExplicitConfigPath(parsed) || (global ? CONFIG_FILE : LOCAL_CONFIG);
   const existing = readJson(filePath) || {};
   const apiKey = nextConfig.apiKey || existing.apiKey;
   const baseUrl = normalizeBaseUrl(nextConfig.baseUrl || existing.baseUrl || inferBaseUrlFromApiKey(apiKey));
@@ -511,6 +547,7 @@ async function buildHealthReport(config = getConfig()) {
   const baseReport = {
     configured: true,
     source: config.source,
+    configPath: config.configPath,
     savedBaseUrl: config.baseUrl,
     baseUrlSource: config.baseUrlSource,
     apiKey: redactApiKey(config.apiKey),
@@ -629,22 +666,25 @@ const COMMANDS = {
         ? 'inferred'
         : 'fallback';
 
-    const filePath = saveConfig({ baseUrl: verifiedBaseUrl, apiKey, baseUrlSource: savedBaseUrlSource }, global);
-    info(`Config saved ${global ? 'globally' : 'locally'} at ${filePath}.`);
+    const filePath = saveConfig({ baseUrl: verifiedBaseUrl, apiKey, baseUrlSource: savedBaseUrlSource }, global, parsed);
+    const location = getExplicitConfigPath(parsed) ? 'explicit' : global ? 'global' : 'local';
+    info(`Config saved ${location === 'explicit' ? 'to explicit path' : location} at ${filePath}.`);
     output({
       status: 'configured',
-      location: global ? 'global' : 'local',
+      location,
+      configPath: filePath,
       baseUrl: verifiedBaseUrl,
       baseUrlSource: savedBaseUrlSource,
       verified: !parsed['no-verify'],
       apiKey: redactApiKey(apiKey),
     });
   },
-  config: async () => {
-    const config = getConfig();
+  config: async (args) => {
+    const config = getConfig(parseArgs(args));
     output(config ? {
       configured: true,
       source: config.source,
+      configPath: config.configPath,
       baseUrl: config.baseUrl,
       baseUrlSource: config.baseUrlSource,
       apiKey: redactApiKey(config.apiKey),
@@ -723,7 +763,7 @@ const COMMANDS = {
     defaultBaseUrl: DEFAULT_BASE_URL,
     testBaseUrl: DEV_BASE_URL,
     testKeyPrefix: DEV_API_KEY_PREFIX,
-    env: ['PO_ONCE_BASE_URL', 'PO_ONCE_AGENT_API_KEY'],
+    env: ['PO_ONCE_BASE_URL', 'PO_ONCE_AGENT_API_KEY', 'PO_ONCE_CONFIG_PATH'],
   }),
 };
 

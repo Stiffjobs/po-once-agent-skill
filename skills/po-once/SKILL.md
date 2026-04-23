@@ -4,7 +4,7 @@ description: >
   Use Po Once's organization-scoped agent API to list connected accounts, upload
   media, create content, schedule or publish posts, inspect status, and delete
   eligible posts through a local helper script.
-last-updated: 2026-04-20
+last-updated: 2026-04-23
 allowed-tools: Bash(./scripts/po-once.cjs:*)
 ---
 
@@ -43,6 +43,22 @@ Override it if needed:
 
 If API calls fail on the inferred host, rerun `setup` with `--base-url`. Use `--no-verify` only when you intentionally want to save the config without testing it first.
 
+Config resolution order:
+
+- `PO_ONCE_AGENT_API_KEY` and optional `PO_ONCE_BASE_URL`
+- `--config /absolute/path/to/config.json` or `PO_ONCE_CONFIG_PATH=/absolute/path/to/config.json`
+- nearest project `.po-once/config.json`, discovered by walking upward from the current working directory
+- global config at `~/.config/po-once/config.json`
+
+That means the helper no longer assumes local config only exists at the current directory root. Running the bundled script from the installed skill directory, a nested repo folder, or another subdirectory is safe as long as the project-local `.po-once/config.json` exists somewhere above the invocation directory.
+
+Use an explicit config path when you need deterministic behavior in automation or CI:
+
+```bash
+./scripts/po-once.cjs health --config /absolute/path/to/config.json
+PO_ONCE_CONFIG_PATH=/absolute/path/to/config.json ./scripts/po-once.cjs accounts
+```
+
 **Note for agents**: All script paths in this document are relative to the directory where this `SKILL.md` is installed. For example, `./scripts/po-once.cjs` refers to the script bundled with this skill, not a repository-root `./scripts/po-once.cjs`. Resolve paths from the installed skill directory.
 
 ## Commands
@@ -50,8 +66,8 @@ If API calls fail on the inferred host, rerun `setup` with `--base-url`. Use `--
 | Command | Description |
 |---------|-------------|
 | `./scripts/po-once.cjs setup --api-key <token>` | Save credentials and verify `accounts` |
-| `./scripts/po-once.cjs config` | Show resolved config |
-| `./scripts/po-once.cjs health` | Show active config and whether `accounts` succeeds |
+| `./scripts/po-once.cjs config` | Show resolved config, source, and `configPath` |
+| `./scripts/po-once.cjs health` | Show active config, `configPath`, and whether `accounts` succeeds |
 | `./scripts/po-once.cjs whoami` | Alias for `health` |
 | `./scripts/po-once.cjs accounts` | List connected accounts |
 | `./scripts/po-once.cjs accounts --provider instagram --match relation` | Filter connected accounts |
@@ -78,7 +94,7 @@ The helper script wraps these endpoints:
 
 ## Recommended Agent Workflow
 
-1. Run `health` if you need to confirm which base URL and config source are active.
+1. Run `health` if you need to confirm which base URL, config source, and `configPath` are active.
 2. Call `accounts` to get valid profile IDs.
 3. Use `accounts --provider ... --match ...` to narrow down the right profile IDs before posting.
 4. Draft content and confirm whether the user wants direct or scheduled posting.
