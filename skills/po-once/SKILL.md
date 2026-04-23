@@ -4,7 +4,7 @@ description: >
   Use Po Once's organization-scoped agent API to list connected accounts, upload
   media, create content, schedule or publish posts, inspect status, and delete
   eligible posts through a local helper script.
-last-updated: 2026-04-16
+last-updated: 2026-04-20
 allowed-tools: Bash(./scripts/po-once.cjs:*)
 ---
 
@@ -28,10 +28,10 @@ If setup is needed and you are invoking the script without first switching into 
 
 Base URL selection:
 
-- Keys starting with `po_test_org_` use the test base URL: `https://dynamic-lapwing-647.convex.site`
-- All other org keys, including normal `po_once_org_...` keys, use the production base URL: `https://fastidious-elephant-379.convex.site`
+- Keys starting with `po_test_org_` are tried against the test base URL first: `https://dynamic-lapwing-647.convex.site`
+- All other org keys, including normal `po_once_org_...` keys, are tried against the production base URL first: `https://fastidious-elephant-379.convex.site`
 
-The setup command infers the environment from the API key prefix unless you pass `--base-url` explicitly.
+This prefix-based host selection is a default heuristic, not a guarantee. By default, `setup` verifies the configuration with `accounts` before saving it and may fall back to the other known host if the inferred host does not resolve the agent route correctly.
 
 Override it if needed:
 
@@ -41,21 +41,27 @@ Override it if needed:
   --base-url https://your-other-convex-host.convex.site
 ```
 
+If API calls fail on the inferred host, rerun `setup` with `--base-url`. Use `--no-verify` only when you intentionally want to save the config without testing it first.
+
 **Note for agents**: All script paths in this document are relative to the directory where this `SKILL.md` is installed. For example, `./scripts/po-once.cjs` refers to the script bundled with this skill, not a repository-root `./scripts/po-once.cjs`. Resolve paths from the installed skill directory.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `./scripts/po-once.cjs setup --api-key <token>` | Save credentials |
+| `./scripts/po-once.cjs setup --api-key <token>` | Save credentials and verify `accounts` |
 | `./scripts/po-once.cjs config` | Show resolved config |
+| `./scripts/po-once.cjs health` | Show active config and whether `accounts` succeeds |
+| `./scripts/po-once.cjs whoami` | Alias for `health` |
 | `./scripts/po-once.cjs accounts` | List connected accounts |
+| `./scripts/po-once.cjs accounts --provider instagram --match relation` | Filter connected accounts |
 | `./scripts/po-once.cjs upload --file ./clip.mp4` | Upload media |
 | `./scripts/po-once.cjs content:create --caption "..." --post-type video --storage-key <key> --size-bytes 1234` | Create content |
 | `./scripts/po-once.cjs post --content-id <id> --accounts profile1,profile2 --mode scheduled --schedule 2026-04-17T09:00:00Z --timezone UTC` | Create post batch |
 | `./scripts/po-once.cjs publish --file ./clip.mp4 --caption "..." --accounts profile1,profile2 --mode direct` | Upload, create content, and create post |
 | `./scripts/po-once.cjs posts --limit 20 --status scheduled` | List posts |
 | `./scripts/po-once.cjs posts:get --id <post_id>` | Get one post |
+| `./scripts/po-once.cjs posts:get --id <post_id> --status-only` | Get a minimal status view for one post |
 | `./scripts/po-once.cjs posts:delete --id <post_id>` | Delete eligible post |
 
 ## API Surface
@@ -72,15 +78,18 @@ The helper script wraps these endpoints:
 
 ## Recommended Agent Workflow
 
-1. Call `accounts` to get valid profile IDs.
-2. Draft content and confirm whether the user wants direct or scheduled posting.
-3. Use `publish` for the normal end-to-end path.
-4. Use `posts` or `posts:get` to confirm status.
-5. Only use `posts:delete` when the user explicitly wants a scheduled post removed.
+1. Run `health` if you need to confirm which base URL and config source are active.
+2. Call `accounts` to get valid profile IDs.
+3. Use `accounts --provider ... --match ...` to narrow down the right profile IDs before posting.
+4. Draft content and confirm whether the user wants direct or scheduled posting.
+5. Use `publish` for the normal end-to-end path.
+6. Use `posts` or `posts:get --status-only` to confirm status.
+7. Only use `posts:delete` when the user explicitly wants a scheduled post removed.
 
 ## Safety Notes
 
 - Treat the API token like a password.
+- CLI output redacts common credential fields, but avoid sharing raw command output broadly unless needed.
 - Prefer scheduled posting unless the user clearly wants immediate publishing.
 - Results are scoped to the organization tied to the token.
 - Some posts cannot be deleted once processing has started.

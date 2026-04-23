@@ -7,8 +7,26 @@ const os = require('os');
 const DEV_BASE_URL = 'https://dynamic-lapwing-647.convex.site';
 const DEFAULT_BASE_URL = 'https://fastidious-elephant-379.convex.site';
 const DEV_API_KEY_PREFIX = 'po_test_org_';
+const KNOWN_BASE_URLS = [DEFAULT_BASE_URL, DEV_BASE_URL];
 const SKILL_SCRIPT_PATH = '<skill-path>/scripts/po-once.cjs';
 const RELATIVE_SCRIPT_PATH_NOTE = './scripts/po-once.cjs (relative to the skill directory)';
+const REDACTED_VALUE = '[redacted]';
+const SENSITIVE_FIELD_NAMES = new Set([
+  'accesstoken',
+  'apikey',
+  'authcode',
+  'authorization',
+  'authorizationcode',
+  'bearertoken',
+  'clientsecret',
+  'idtoken',
+  'oauthaccesstoken',
+  'oauthrefreshtoken',
+  'password',
+  'refreshtoken',
+  'secret',
+  'sessiontoken',
+]);
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'po-once');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 const LOCAL_CONFIG = path.join(process.cwd(), '.po-once', 'config.json');
@@ -37,38 +55,86 @@ function inferBaseUrlFromApiKey(apiKey) {
   return DEFAULT_BASE_URL;
 }
 
-function resolveBaseUrl(baseUrl, apiKey) {
-  return normalizeBaseUrl(baseUrl || inferBaseUrlFromApiKey(apiKey));
+function buildBaseUrlCandidates(baseUrl, apiKey) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+  if (normalizedBaseUrl) {
+    return {
+      baseUrl: normalizedBaseUrl,
+      baseUrlCandidates: [normalizedBaseUrl],
+      baseUrlSource: 'explicit',
+    };
+  }
+
+  const inferredBaseUrl = inferBaseUrlFromApiKey(apiKey);
+  return {
+    baseUrl: inferredBaseUrl,
+    baseUrlCandidates: [inferredBaseUrl, ...KNOWN_BASE_URLS.filter((candidate) => candidate !== inferredBaseUrl)],
+    baseUrlSource: 'inferred',
+  };
+}
+
+function resolveSavedBaseUrl(config) {
+  if (!config || !config.apiKey) return null;
+
+  const normalizedBaseUrl = normalizeBaseUrl(config.baseUrl);
+  if (!normalizedBaseUrl) {
+    return buildBaseUrlCandidates(null, config.apiKey);
+  }
+
+  return {
+    baseUrl: normalizedBaseUrl,
+    baseUrlCandidates: [normalizedBaseUrl],
+    baseUrlSource: config.baseUrlSource || 'saved',
+  };
+}
+
+function createConfig({ apiKey, baseUrl, baseUrlCandidates, source, baseUrlSource }) {
+  return {
+    apiKey,
+    baseUrl,
+    baseUrlCandidates: baseUrlCandidates || [baseUrl],
+    source,
+    baseUrlSource,
+  };
 }
 
 function getConfig() {
   if (process.env.PO_ONCE_AGENT_API_KEY) {
-    return {
-      baseUrl: resolveBaseUrl(process.env.PO_ONCE_BASE_URL, process.env.PO_ONCE_AGENT_API_KEY),
+    const resolved = buildBaseUrlCandidates(process.env.PO_ONCE_BASE_URL, process.env.PO_ONCE_AGENT_API_KEY);
+    return createConfig({
       apiKey: process.env.PO_ONCE_AGENT_API_KEY,
+      baseUrl: resolved.baseUrl,
+      baseUrlCandidates: resolved.baseUrlCandidates,
       source: 'env',
-    };
+      baseUrlSource: resolved.baseUrlSource,
+    });
   }
 
   if (fs.existsSync(LOCAL_CONFIG)) {
     const local = readJson(LOCAL_CONFIG);
     if (local && local.apiKey) {
-      return {
-        baseUrl: resolveBaseUrl(local.baseUrl, local.apiKey),
+      const resolved = resolveSavedBaseUrl(local);
+      return createConfig({
         apiKey: local.apiKey,
+        baseUrl: resolved.baseUrl,
+        baseUrlCandidates: resolved.baseUrlCandidates,
         source: 'local',
-      };
+        baseUrlSource: resolved.baseUrlSource,
+      });
     }
   }
 
   if (fs.existsSync(CONFIG_FILE)) {
     const global = readJson(CONFIG_FILE);
     if (global && global.apiKey) {
-      return {
-        baseUrl: resolveBaseUrl(global.baseUrl, global.apiKey),
+      const resolved = resolveSavedBaseUrl(global);
+      return createConfig({
         apiKey: global.apiKey,
+        baseUrl: resolved.baseUrl,
+        baseUrlCandidates: resolved.baseUrlCandidates,
         source: 'global',
-      };
+        baseUrlSource: resolved.baseUrlSource,
+      });
     }
   }
 
@@ -79,10 +145,12 @@ function saveConfig(nextConfig, global = true) {
   const filePath = global ? CONFIG_FILE : LOCAL_CONFIG;
   const existing = readJson(filePath) || {};
   const apiKey = nextConfig.apiKey || existing.apiKey;
+  const baseUrl = normalizeBaseUrl(nextConfig.baseUrl || existing.baseUrl || inferBaseUrlFromApiKey(apiKey));
   const merged = {
     ...existing,
     ...nextConfig,
-    baseUrl: resolveBaseUrl(nextConfig.baseUrl || existing.baseUrl, apiKey),
+    baseUrl,
+    baseUrlSource: nextConfig.baseUrlSource || existing.baseUrlSource || 'saved',
   };
   writeJson(filePath, merged);
   return filePath;
@@ -94,8 +162,32 @@ function redactApiKey(apiKey) {
   return `${apiKey.slice(0, 12)}...${apiKey.slice(-4)}`;
 }
 
+function normalizeFieldName(fieldName) {
+  return String(fieldName).replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
+function isSensitiveFieldName(fieldName) {
+  const normalizedFieldName = normalizeFieldName(fieldName);
+  return SENSITIVE_FIELD_NAMES.has(normalizedFieldName)
+    || normalizedFieldName.endsWith('token')
+    || normalizedFieldName.endsWith('secret')
+    || normalizedFieldName.endsWith('password');
+}
+
+function redactSensitiveData(value) {
+  if (Array.isArray(value)) return value.map(redactSensitiveData);
+  if (!value || typeof value !== 'object') return value;
+
+  const entries = Object.entries(value).map(([key, entryValue]) => {
+    if (isSensitiveFieldName(key)) return [key, REDACTED_VALUE];
+    return [key, redactSensitiveData(entryValue)];
+  });
+
+  return Object.fromEntries(entries);
+}
+
 function output(data) {
-  console.log(JSON.stringify(data, null, 2));
+  console.log(JSON.stringify(redactSensitiveData(data), null, 2));
 }
 
 function error(message) {
@@ -108,6 +200,11 @@ function info(message) {
 
 function usage(command) {
   return `${SKILL_SCRIPT_PATH} ${command}`;
+}
+
+function formatApiError(data) {
+  if (data && data.error) return `${data.error.code}: ${data.error.message}`;
+  return JSON.stringify(redactSensitiveData(data));
 }
 
 function parseArgs(args) {
@@ -130,6 +227,98 @@ function parseArgs(args) {
 function parseCommaList(value) {
   if (!value || typeof value !== 'string') return undefined;
   return value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function pickDefinedFields(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, entryValue]) => entryValue !== undefined));
+}
+
+function extractAccountsCollection(data) {
+  if (Array.isArray(data)) return { key: null, accounts: data };
+  if (!data || typeof data !== 'object') return null;
+
+  for (const key of ['accounts', 'items', 'results']) {
+    if (Array.isArray(data[key])) return { key, accounts: data[key] };
+  }
+
+  return null;
+}
+
+function matchesAccountProvider(account, provider) {
+  if (!provider) return true;
+
+  const normalizedProvider = provider.toLowerCase();
+  const candidates = [account.provider, account.platform, account.network, account.type]
+    .filter((value) => typeof value === 'string')
+    .map((value) => value.toLowerCase());
+  return candidates.some((value) => value === normalizedProvider);
+}
+
+function matchesAccountQuery(account, query) {
+  if (!query) return true;
+  return JSON.stringify(account).toLowerCase().includes(query.toLowerCase());
+}
+
+function applyAccountFilters(data, parsed) {
+  const collection = extractAccountsCollection(data);
+  if (!collection) return data;
+  if (!parsed.provider && !parsed.match) return data;
+
+  const filteredAccounts = collection.accounts.filter((account) => {
+    if (!account || typeof account !== 'object') return false;
+    return matchesAccountProvider(account, parsed.provider) && matchesAccountQuery(account, parsed.match);
+  });
+
+  if (!collection.key) return filteredAccounts;
+
+  return {
+    ...data,
+    [collection.key]: filteredAccounts,
+    filteredCount: filteredAccounts.length,
+  };
+}
+
+function extractPostStatusEntries(post) {
+  if (!post || typeof post !== 'object') return undefined;
+
+  for (const key of ['accounts', 'profileStatuses', 'results', 'items', 'deliveries']) {
+    const value = post[key];
+    if (!Array.isArray(value)) continue;
+
+    const entries = value
+      .filter((entry) => entry && typeof entry === 'object')
+      .map((entry) => pickDefinedFields({
+        id: entry.id || entry.accountId || entry.profileId,
+        profileId: entry.profileId,
+        provider: entry.provider || entry.platform || entry.network,
+        username: entry.username || entry.handle || entry.name,
+        status: entry.status,
+        subStatus: entry.subStatus,
+        error: entry.errorMessage || entry.message || (entry.error && entry.error.message),
+      }))
+      .filter((entry) => Object.keys(entry).length > 0);
+
+    if (entries.length > 0) return entries;
+  }
+
+  return undefined;
+}
+
+function summarizePostStatus(post, fallbackId) {
+  if (!post || typeof post !== 'object') return { id: fallbackId };
+
+  return pickDefinedFields({
+    id: post.id || post.postId || fallbackId,
+    contentId: post.contentId,
+    status: post.status,
+    mode: post.mode,
+    scheduledTime: post.scheduledTime || post.scheduledAt,
+    createdAt: post.createdAt,
+    updatedAt: post.updatedAt,
+    publishedAt: post.publishedAt,
+    error: post.errorMessage || (post.error && post.error.message),
+    accounts: extractPostStatusEntries(post),
+  });
 }
 
 function parseInteger(value, fieldName) {
@@ -198,10 +387,15 @@ async function request(method, endpoint, body) {
     process.exit(1);
   }
 
-  const response = await fetch(`${config.baseUrl}${endpoint}`, {
+  const result = await requestWithConfig(config, method, endpoint, body);
+  return result.data;
+}
+
+async function requestWithBaseUrl(baseUrl, apiKey, method, endpoint, body) {
+  const response = await fetch(`${baseUrl}${endpoint}`, {
     method,
     headers: {
-      Authorization: `Bearer ${config.apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -215,12 +409,40 @@ async function request(method, endpoint, body) {
     data = { raw: text };
   }
 
-  if (!response.ok) {
-    const message = data && data.error ? `${data.error.code}: ${data.error.message}` : JSON.stringify(data);
-    throw new Error(`API error (${response.status}): ${message}`);
+  return { response, data };
+}
+
+async function requestWithConfig(config, method, endpoint, body, options = {}) {
+  const baseUrlCandidates = config.baseUrlCandidates || [config.baseUrl];
+  const fallbackStatuses = new Set(options.fallbackStatuses || []);
+  let lastError = null;
+
+  for (let index = 0; index < baseUrlCandidates.length; index += 1) {
+    const baseUrl = baseUrlCandidates[index];
+
+    try {
+      const { response, data } = await requestWithBaseUrl(baseUrl, config.apiKey, method, endpoint, body);
+
+      if (response.ok) {
+        return { data, baseUrl, baseUrlSource: config.baseUrlSource };
+      }
+
+      lastError = new Error(`API error (${response.status}) at ${baseUrl}: ${formatApiError(data)}`);
+      lastError.isApiError = true;
+      const canFallback = index < baseUrlCandidates.length - 1 && fallbackStatuses.has(response.status);
+      if (canFallback) continue;
+      throw lastError;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      const canFallback = index < baseUrlCandidates.length - 1
+        && options.retryOnNetworkError === true
+        && lastError.isApiError !== true;
+      if (canFallback) continue;
+      throw lastError;
+    }
   }
 
-  return data;
+  throw lastError || new Error('Request failed.');
 }
 
 async function uploadFile(filePath) {
@@ -255,6 +477,64 @@ async function uploadFile(filePath) {
     storageKey: createUpload.key,
     uploadMethod: createUpload.method || 'PUT',
   };
+}
+
+async function verifyConfig(config) {
+  return requestWithConfig(config, 'GET', '/api/agent/v1/accounts', undefined, {
+    fallbackStatuses: config.baseUrlSource === 'inferred' ? [404] : [],
+    retryOnNetworkError: config.baseUrlSource === 'inferred',
+  });
+}
+
+async function requestAccounts(config = getConfig()) {
+  if (!config || !config.baseUrl || !config.apiKey) {
+    error(`Missing Po Once credentials. Run: ${usage('setup --api-key <api_key>')} or use ${RELATIVE_SCRIPT_PATH_NOTE}.`);
+    process.exit(1);
+  }
+
+  const result = await requestWithConfig(config, 'GET', '/api/agent/v1/accounts', undefined, {
+    fallbackStatuses: config.baseUrlSource === 'inferred' ? [404] : [],
+    retryOnNetworkError: config.baseUrlSource === 'inferred',
+  });
+  return result.data;
+}
+
+async function buildHealthReport(config = getConfig()) {
+  if (!config || !config.baseUrl || !config.apiKey) {
+    return {
+      configured: false,
+      accountsReachable: false,
+      setupHint: usage('setup --api-key <api_key>'),
+    };
+  }
+
+  const baseReport = {
+    configured: true,
+    source: config.source,
+    savedBaseUrl: config.baseUrl,
+    baseUrlSource: config.baseUrlSource,
+    apiKey: redactApiKey(config.apiKey),
+  };
+
+  try {
+    const result = await requestWithConfig(config, 'GET', '/api/agent/v1/accounts', undefined, {
+      fallbackStatuses: config.baseUrlSource === 'inferred' ? [404] : [],
+      retryOnNetworkError: config.baseUrlSource === 'inferred',
+    });
+    const collection = extractAccountsCollection(result.data);
+    return {
+      ...baseReport,
+      accountsReachable: true,
+      activeBaseUrl: result.baseUrl,
+      accountCount: collection ? collection.accounts.length : undefined,
+    };
+  } catch (err) {
+    return {
+      ...baseReport,
+      accountsReachable: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 function buildPostPayload(parsed) {
@@ -321,17 +601,58 @@ const COMMANDS = {
     if (!apiKey) {
       throw new Error(`Usage: ${usage(`setup --api-key <api_key> [--base-url ${DEFAULT_BASE_URL}]`)}`);
     }
-    const baseUrl = resolveBaseUrl(parsed['base-url'], apiKey);
+
+    const resolved = buildBaseUrlCandidates(parsed['base-url'], apiKey);
+    const config = createConfig({
+      apiKey,
+      baseUrl: resolved.baseUrl,
+      baseUrlCandidates: resolved.baseUrlCandidates,
+      source: 'setup',
+      baseUrlSource: resolved.baseUrlSource,
+    });
     const global = !parsed.local;
-    const filePath = saveConfig({ baseUrl, apiKey }, global);
+
+    let verifiedBaseUrl = config.baseUrl;
+    if (!parsed['no-verify']) {
+      const verification = await verifyConfig(config);
+      verifiedBaseUrl = verification.baseUrl;
+      if (verification.baseUrl !== config.baseUrl) {
+        info(`Setup verification succeeded against ${verification.baseUrl} after ${config.baseUrl} failed. Saving the verified base URL.`);
+      } else {
+        info(`Setup verification succeeded against ${verification.baseUrl}.`);
+      }
+    }
+
+    const savedBaseUrlSource = parsed['base-url']
+      ? 'explicit'
+      : verifiedBaseUrl === inferBaseUrlFromApiKey(apiKey)
+        ? 'inferred'
+        : 'fallback';
+
+    const filePath = saveConfig({ baseUrl: verifiedBaseUrl, apiKey, baseUrlSource: savedBaseUrlSource }, global);
     info(`Config saved ${global ? 'globally' : 'locally'} at ${filePath}.`);
-    output({ status: 'configured', location: global ? 'global' : 'local', baseUrl, apiKey: redactApiKey(apiKey) });
+    output({
+      status: 'configured',
+      location: global ? 'global' : 'local',
+      baseUrl: verifiedBaseUrl,
+      baseUrlSource: savedBaseUrlSource,
+      verified: !parsed['no-verify'],
+      apiKey: redactApiKey(apiKey),
+    });
   },
   config: async () => {
     const config = getConfig();
-    output(config ? { configured: true, source: config.source, baseUrl: config.baseUrl, apiKey: redactApiKey(config.apiKey) } : { configured: false });
+    output(config ? {
+      configured: true,
+      source: config.source,
+      baseUrl: config.baseUrl,
+      baseUrlSource: config.baseUrlSource,
+      apiKey: redactApiKey(config.apiKey),
+    } : { configured: false });
   },
-  accounts: async () => output(await request('GET', '/api/agent/v1/accounts')),
+  accounts: async (args) => output(applyAccountFilters(await requestAccounts(), parseArgs(args))),
+  health: async () => output(await buildHealthReport()),
+  whoami: async () => output(await buildHealthReport()),
   upload: async (args) => {
     const parsed = parseArgs(args);
     if (!parsed.file) throw new Error(`Usage: ${usage('upload --file ./clip.mp4')}`);
@@ -386,7 +707,8 @@ const COMMANDS = {
   'posts:get': async (args) => {
     const parsed = parseArgs(args);
     if (!parsed.id) throw new Error(`Usage: ${usage('posts:get --id <post_id>')}`);
-    output(await request('GET', `/api/agent/v1/posts/${parsed.id}`));
+    const post = await request('GET', `/api/agent/v1/posts/${parsed.id}`);
+    output(parsed['status-only'] ? summarizePostStatus(post, parsed.id) : post);
   },
   'posts:delete': async (args) => {
     const parsed = parseArgs(args);
