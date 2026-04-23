@@ -73,12 +73,20 @@ PO_ONCE_CONFIG_PATH=/absolute/path/to/config.json ./scripts/po-once.cjs accounts
 | `./scripts/po-once.cjs accounts --provider instagram --match relation` | Filter connected accounts |
 | `./scripts/po-once.cjs upload --file ./clip.mp4` | Upload media |
 | `./scripts/po-once.cjs content:create --caption "..." --post-type video --storage-key <key> --size-bytes 1234` | Create content |
-| `./scripts/po-once.cjs post --content-id <id> --accounts profile1,profile2 --mode scheduled --schedule 2026-04-17T09:00:00Z --timezone UTC` | Create post batch |
-| `./scripts/po-once.cjs publish --file ./clip.mp4 --caption "..." --accounts profile1,profile2 --mode direct` | Upload, create content, and create post |
+| `./scripts/po-once.cjs post --content-id <id> --accounts social_profile_id_1,social_profile_id_2 --mode scheduled --schedule 2026-04-17T09:00:00Z --timezone UTC` | Create post batch; `--accounts` must be comma-separated `id` or `socialProfileId` values returned by `accounts` |
+| `./scripts/po-once.cjs publish --file ./clip.mp4 --caption "..." --accounts social_profile_id_1,social_profile_id_2 --mode direct` | Upload, create content, and create post; `--accounts` must be comma-separated `id` or `socialProfileId` values returned by `accounts` |
 | `./scripts/po-once.cjs posts --limit 20 --status scheduled` | List posts |
 | `./scripts/po-once.cjs posts:get --id <post_id>` | Get one post |
 | `./scripts/po-once.cjs posts:get --id <post_id> --status-only` | Get a minimal status view for one post |
 | `./scripts/po-once.cjs posts:delete --id <post_id>` | Delete eligible post |
+
+## Account IDs
+
+Agents must call `accounts` before posting unless the user already provided current Po Once `socialProfileId` values. Use the returned `id` or `socialProfileId` as the post target; those values are equivalent for posting.
+
+When running `post` or `publish`, the CLI flag stays named `--accounts` for ergonomics, but it sends those values to the API as `socialProfileIds`. Do not use `accountIds`, `profileIds`, provider-native account IDs, handles, usernames, or display names as post targets.
+
+If the user gives ambiguous account input, run `accounts` and match by visible metadata such as provider, display name, username, or avatar before choosing the returned `id` or `socialProfileId`.
 
 ## API Surface
 
@@ -95,8 +103,8 @@ The helper script wraps these endpoints:
 ## Recommended Agent Workflow
 
 1. Run `health` if you need to confirm which base URL, config source, and `configPath` are active.
-2. Call `accounts` to get valid profile IDs.
-3. Use `accounts --provider ... --match ...` to narrow down the right profile IDs before posting.
+2. Call `accounts` to get valid Po Once social profile IDs unless the user already provided current `socialProfileId` values.
+3. Use `accounts --provider ... --match ...` to narrow down ambiguous account choices before posting.
 4. Draft content and confirm whether the user wants direct or scheduled posting.
 5. Use `publish` for the normal end-to-end path.
 6. Use `posts` or `posts:get --status-only` to confirm status.
@@ -108,4 +116,5 @@ The helper script wraps these endpoints:
 - CLI output redacts common credential fields, but avoid sharing raw command output broadly unless needed.
 - Prefer scheduled posting unless the user clearly wants immediate publishing.
 - Results are scoped to the organization tied to the token.
+- If the API returns `SUBSCRIPTION_REQUIRED`, stop and ask the user to upgrade the organization to an active Starter or Pro plan, or switch organizations.
 - Some posts cannot be deleted once processing has started.

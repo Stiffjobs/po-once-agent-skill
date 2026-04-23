@@ -31,11 +31,15 @@ layout that the `skills` CLI discovers automatically.
 ./skills/po-once/scripts/po-once.cjs publish \
   --file ./launch.mp4 \
   --caption "Shipping this week." \
-  --accounts profile_id_1,profile_id_2 \
+  --accounts social_profile_id_1,social_profile_id_2 \
   --mode scheduled \
   --schedule 2026-04-17T09:00:00Z \
   --timezone UTC
 ```
+
+`--accounts` means comma-separated `id` or `socialProfileId` values returned by
+`./skills/po-once/scripts/po-once.cjs accounts`; the helper sends them as
+`socialProfileIds`.
 
 ## License
 

@@ -292,7 +292,21 @@ function matchesAccountProvider(account, provider) {
 
 function matchesAccountQuery(account, query) {
   if (!query) return true;
-  return JSON.stringify(account).toLowerCase().includes(query.toLowerCase());
+  const normalizedQuery = query.toLowerCase();
+  const visibleFields = [
+    account.provider,
+    account.platform,
+    account.network,
+    account.type,
+    account.displayName,
+    account.username,
+    account.handle,
+    account.name,
+    account.avatarUrl,
+  ];
+  return visibleFields
+    .filter((value) => typeof value === 'string')
+    .some((value) => value.toLowerCase().includes(normalizedQuery));
 }
 
 function applyAccountFilters(data, parsed) {
@@ -576,15 +590,16 @@ async function buildHealthReport(config = getConfig()) {
 
 function buildPostPayload(parsed) {
   const mode = parsed.mode === 'scheduled' || parsed.schedule ? 'scheduled' : 'direct';
+  const socialProfileIds = parseCommaList(parsed.accounts);
   const payload = {
     contentId: parsed['content-id'],
-    profileIds: parseCommaList(parsed.accounts),
+    socialProfileIds,
     mode,
   };
 
   if (!payload.contentId) throw new Error('Missing --content-id.');
-  if (!payload.profileIds || payload.profileIds.length === 0) {
-    throw new Error('Missing --accounts. Use comma-separated profile IDs.');
+  if (!payload.socialProfileIds || payload.socialProfileIds.length === 0) {
+    throw new Error('Missing --accounts. Use comma-separated id/socialProfileId values from accounts.');
   }
 
   const scheduledTime = parseScheduledTime(parsed.schedule);
@@ -721,7 +736,7 @@ const COMMANDS = {
     const files = parseCommaList(parsed.file || parsed.files);
     if (!parsed.caption) throw new Error('Missing --caption.');
     if (!files || files.length === 0) throw new Error('Missing --file or --files.');
-    if (!parsed.accounts) throw new Error('Missing --accounts. Use comma-separated profile IDs.');
+    if (!parsed.accounts) throw new Error('Missing --accounts. Use comma-separated id/socialProfileId values from accounts.');
     const uploads = [];
     for (const filePath of files) uploads.push(await uploadFile(filePath));
     const postType = parsed['post-type'] || inferPostType(files);
