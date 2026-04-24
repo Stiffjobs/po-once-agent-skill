@@ -21,8 +21,21 @@ layout that the `skills` CLI discovers automatically.
 ## Quick Start
 
 ```bash
-./skills/po-once/scripts/po-once.cjs setup --api-key po_once_org_<secret>
+./skills/po-once/scripts/po-once.cjs setup --api-key po_live_org_<secret>
 ./skills/po-once/scripts/po-once.cjs accounts
+```
+
+## Analysis Examples
+
+```bash
+./skills/po-once/scripts/po-once.cjs analytics:profile \
+  --profile-id social_profile_id_1 \
+  --days 28
+
+./skills/po-once/scripts/po-once.cjs keyword-search \
+  --linked-account-id threads_linked_account_id \
+  --keyword "launch tips" \
+  --search-type TOP
 ```
 
 ## Example

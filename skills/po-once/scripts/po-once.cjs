@@ -30,6 +30,9 @@ const SENSITIVE_FIELD_NAMES = new Set([
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'po-once');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 const LOCAL_CONFIG = path.join(process.cwd(), '.po-once', 'config.json');
+const META_ANALYTICS_PROVIDERS = new Set(['facebook', 'instagram', 'threads']);
+const THREADS_PROVIDER = 'threads';
+const TIKTOK_PROVIDER = 'tiktok';
 
 function readJson(filePath) {
   try {
@@ -290,6 +293,37 @@ function matchesAccountProvider(account, provider) {
   return candidates.some((value) => value === normalizedProvider);
 }
 
+function normalizeProviderName(value) {
+  if (typeof value !== 'string') return null;
+  const normalizedValue = value.trim().toLowerCase();
+  return normalizedValue.length > 0 ? normalizedValue : null;
+}
+
+function getAccountProvider(account) {
+  if (!account || typeof account !== 'object') return null;
+
+  for (const fieldName of ['provider', 'platform', 'network', 'type']) {
+    const normalizedValue = normalizeProviderName(account[fieldName]);
+    if (normalizedValue) return normalizedValue;
+  }
+
+  return null;
+}
+
+function getAccountsArray(data) {
+  const collection = extractAccountsCollection(data);
+  if (!collection) return [];
+  return collection.accounts.filter((account) => account && typeof account === 'object');
+}
+
+function findAccountByProfileId(data, profileId) {
+  return getAccountsArray(data).find((account) => account.id === profileId || account.socialProfileId === profileId);
+}
+
+function findAccountByLinkedAccountId(data, linkedAccountId) {
+  return getAccountsArray(data).find((account) => account.linkedAccountId === linkedAccountId);
+}
+
 function matchesAccountQuery(account, query) {
   if (!query) return true;
   const normalizedQuery = query.toLowerCase();
@@ -429,6 +463,84 @@ function parseScheduledTime(value) {
     throw new Error('Field "schedule" must be Unix milliseconds or an ISO timestamp.');
   }
   return timestamp;
+}
+
+function buildAnalyticsRequest(parsed, provider) {
+  const profileId = parsed['profile-id'];
+  if (!profileId) {
+    throw new Error(`Usage: ${usage('analytics:profile --profile-id <social_profile_id> [--days 28 | --period day | --since 2026-04-01 --until 2026-04-28 | --cursor <cursor> --max-count 20]')}`);
+  }
+
+  const normalizedProvider = normalizeProviderName(provider);
+  const hasDays = parsed.days !== undefined;
+  const hasPeriod = parsed.period !== undefined;
+  const hasSince = parsed.since !== undefined;
+  const hasUntil = parsed.until !== undefined;
+  const hasCursor = parsed.cursor !== undefined;
+  const hasMaxCount = parsed['max-count'] !== undefined;
+  const searchParams = new URLSearchParams();
+
+  if (hasDays && (hasPeriod || hasSince || hasUntil)) {
+    throw new Error('Do not combine --days with --period, --since, or --until.');
+  }
+
+  if (hasPeriod && (hasSince || hasUntil)) {
+    throw new Error('Do not combine --period with --since or --until.');
+  }
+
+  if (normalizedProvider === TIKTOK_PROVIDER) {
+    if (hasDays || hasPeriod || hasSince || hasUntil) {
+      throw new Error('TikTok analytics only supports --cursor and --max-count.');
+    }
+  } else {
+    if (!META_ANALYTICS_PROVIDERS.has(normalizedProvider)) {
+      throw new Error(`Analytics is currently supported for Meta providers and TikTok. Matched provider: ${provider || 'unknown'}.`);
+    }
+
+    if (hasCursor || hasMaxCount) {
+      throw new Error('Do not send --cursor or --max-count for non-TikTok analytics requests.');
+    }
+  }
+
+  if (hasDays) searchParams.set('days', String(parsed.days));
+  if (hasPeriod) searchParams.set('period', String(parsed.period));
+  if (hasSince) searchParams.set('since', String(parsed.since));
+  if (hasUntil) searchParams.set('until', String(parsed.until));
+  if (hasCursor) searchParams.set('cursor', String(parsed.cursor));
+  if (hasMaxCount) searchParams.set('maxCount', String(parseInteger(parsed['max-count'], 'max-count')));
+
+  if (searchParams.size === 0 && normalizedProvider !== TIKTOK_PROVIDER) {
+    searchParams.set('days', '28');
+  }
+
+  return {
+    profileId,
+    suffix: searchParams.size > 0 ? `?${searchParams.toString()}` : '',
+  };
+}
+
+function buildKeywordSearchPayload(parsed) {
+  if (!parsed['linked-account-id']) {
+    throw new Error(`Usage: ${usage('keyword-search --linked-account-id <threads_linked_account_id> --keyword "launch tips" [--search-type TOP|RECENT]')}`);
+  }
+
+  if (!parsed.keyword) {
+    throw new Error('Missing --keyword.');
+  }
+
+  const searchType = parsed['search-type'] === undefined
+    ? undefined
+    : String(parsed['search-type']).trim().toUpperCase();
+
+  if (searchType !== undefined && searchType !== 'TOP' && searchType !== 'RECENT') {
+    throw new Error('Field "search-type" must be TOP or RECENT.');
+  }
+
+  return pickDefinedFields({
+    linkedAccountId: parsed['linked-account-id'],
+    keyword: parsed.keyword,
+    searchType,
+  });
 }
 
 function inferMimeType(filePath) {
@@ -729,8 +841,39 @@ const COMMANDS = {
     } : { configured: false });
   },
   accounts: async (args) => output(applyAccountFilters(await requestAccounts(), parseArgs(args))),
+  'analytics:profile': async (args) => {
+    const parsed = parseArgs(args);
+    if (!parsed['profile-id']) {
+      buildAnalyticsRequest(parsed);
+    }
+    const accounts = await requestAccounts();
+    const profileId = parsed['profile-id'];
+    const account = findAccountByProfileId(accounts, profileId);
+    if (!account) {
+      throw new Error('Profile not found in accounts. Run accounts and use the returned id/socialProfileId value.');
+    }
+
+    const analyticsRequest = buildAnalyticsRequest(parsed, getAccountProvider(account));
+    output(await request('GET', `/api/agent/v1/analytics/profiles/${encodeURIComponent(analyticsRequest.profileId)}${analyticsRequest.suffix}`));
+  },
   health: async () => output(await buildHealthReport()),
   whoami: async () => output(await buildHealthReport()),
+  'keyword-search': async (args) => {
+    const parsed = parseArgs(args);
+    const payload = buildKeywordSearchPayload(parsed);
+    const accounts = await requestAccounts();
+    const account = findAccountByLinkedAccountId(accounts, payload.linkedAccountId);
+    if (!account) {
+      throw new Error('Linked account not found in accounts. Run accounts and use the returned linkedAccountId for a Threads account.');
+    }
+
+    const provider = getAccountProvider(account);
+    if (provider !== THREADS_PROVIDER) {
+      throw new Error(`Keyword search only supports Threads linked accounts. Matched provider: ${provider || 'unknown'}.`);
+    }
+
+    output(await request('POST', '/api/agent/v1/keyword-search', payload));
+  },
   upload: async (args) => {
     const parsed = parseArgs(args);
     if (!parsed.file) throw new Error(`Usage: ${usage('upload --file ./clip.mp4')}`);
@@ -800,6 +943,31 @@ const COMMANDS = {
     scriptPath: SKILL_SCRIPT_PATH,
     relativeScriptPath: RELATIVE_SCRIPT_PATH_NOTE,
     commands: Object.keys(COMMANDS).filter((command) => command !== 'help'),
+    commandHelp: {
+      'analytics:profile': {
+        summary: 'Fetch provider-specific profile analytics after resolving the account through accounts.',
+        usage: [
+          `${usage('analytics:profile --profile-id <social_profile_id> --days 28')}`,
+          `${usage('analytics:profile --profile-id <social_profile_id> --cursor <cursor> --max-count 20')}`,
+        ],
+        notes: [
+          'Meta profiles support --days, --period, --since, and --until.',
+          'TikTok profiles support --cursor and --max-count.',
+          'Do not combine --days with --period, --since, or --until.',
+        ],
+      },
+      'keyword-search': {
+        summary: 'Run ad-hoc Threads keyword discovery using a Threads linkedAccountId from accounts.',
+        usage: [
+          `${usage('keyword-search --linked-account-id <threads_linked_account_id> --keyword "launch tips"')}`,
+          `${usage('keyword-search --linked-account-id <threads_linked_account_id> --keyword "launch tips" --search-type RECENT')}`,
+        ],
+        notes: [
+          '--search-type defaults to TOP.',
+          'Only Threads linked accounts are valid for keyword search.',
+        ],
+      },
+    },
     defaultBaseUrl: DEFAULT_BASE_URL,
     testBaseUrl: DEV_BASE_URL,
     testKeyPrefix: DEV_API_KEY_PREFIX,
