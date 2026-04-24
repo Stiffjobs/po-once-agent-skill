@@ -25,19 +25,6 @@ layout that the `skills` CLI discovers automatically.
 ./skills/po-once/scripts/po-once.cjs accounts
 ```
 
-## Analysis Examples
-
-```bash
-./skills/po-once/scripts/po-once.cjs analytics:profile \
-  --profile-id social_profile_id_1 \
-  --days 28
-
-./skills/po-once/scripts/po-once.cjs keyword-search \
-  --linked-account-id threads_linked_account_id \
-  --keyword "launch tips" \
-  --search-type TOP
-```
-
 ## Example
 
 ```bash
