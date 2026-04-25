@@ -4,7 +4,7 @@ description: >
   Use Po Once's organization-scoped agent API to list connected accounts, upload
   media, create content, schedule or publish posts, inspect status, and delete
   eligible scheduled posts through a local helper script.
-last-updated: 2026-04-24
+last-updated: 2026-04-25
 allowed-tools: Bash(./scripts/po-once.cjs:*)
 ---
 
@@ -28,26 +28,15 @@ If setup is needed and you are invoking the script without first switching into 
 <skill-path>/scripts/po-once.cjs setup --api-key po_live_org_<secret>
 ```
 
-Base URL selection:
+Default base URL:
 
-- Keys starting with `po_test_org_` are tried against the test base URL first: `https://dynamic-lapwing-647.convex.site`
-- All other org keys, including normal `po_live_org_...` keys, are tried against the production base URL first: `https://fastidious-elephant-379.convex.site`
+- The skill uses the production base URL by default: `https://dynamic-lapwing-647.convex.site`
 
-This prefix-based host selection is a default heuristic, not a guarantee. By default, `setup` verifies the configuration with `accounts` before saving it and may fall back to the other known host if the inferred host does not resolve the agent route correctly.
-
-Override it if needed:
-
-```bash
-./scripts/po-once.cjs setup \
-  --api-key po_live_org_<secret> \
-  --base-url https://your-other-convex-host.convex.site
-```
-
-If API calls fail on the inferred host, rerun `setup` with `--base-url`. Use `--no-verify` only when you intentionally want to save the config without testing it first.
+By default, `setup` verifies the configuration with `accounts` before saving it.
 
 Config resolution order:
 
-- `PO_ONCE_AGENT_API_KEY` and optional `PO_ONCE_BASE_URL`
+- `PO_ONCE_AGENT_API_KEY`
 - `--config /absolute/path/to/config.json` or `PO_ONCE_CONFIG_PATH=/absolute/path/to/config.json`
 - nearest project `.po-once/config.json`, discovered by walking upward from the current working directory
 - global config at `~/.config/po-once/config.json`
@@ -189,7 +178,7 @@ The helper script wraps these endpoints:
    - named target account
    - same-brand cross-platform overview
    - organization-wide comparison
-2. Run `health` if you need to confirm which base URL, config source, and `configPath` are active.
+2. Run `health` if you need to confirm which config source and `configPath` are active.
 3. Run `accounts` to resolve the exact target account unless the user already provided current Po Once IDs.
 4. State the resolved target before analysis:
    - provider

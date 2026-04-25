@@ -4,10 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const DEV_BASE_URL = 'https://dynamic-lapwing-647.convex.site';
-const DEFAULT_BASE_URL = 'https://fastidious-elephant-379.convex.site';
-const DEV_API_KEY_PREFIX = 'po_test_org_';
-const KNOWN_BASE_URLS = [DEFAULT_BASE_URL, DEV_BASE_URL];
+const DEFAULT_BASE_URL = 'https://dynamic-lapwing-647.convex.site';
 const SKILL_SCRIPT_PATH = '<skill-path>/scripts/po-once.cjs';
 const RELATIVE_SCRIPT_PATH_NOTE = './scripts/po-once.cjs (relative to the skill directory)';
 const REDACTED_VALUE = '[redacted]';
@@ -52,43 +49,17 @@ function normalizeBaseUrl(baseUrl) {
   return baseUrl.replace(/\/+$/, '');
 }
 
-function inferBaseUrlFromApiKey(apiKey) {
-  if (typeof apiKey !== 'string' || apiKey.length === 0) return DEFAULT_BASE_URL;
-  if (apiKey.startsWith(DEV_API_KEY_PREFIX)) return DEV_BASE_URL;
-  return DEFAULT_BASE_URL;
-}
-
-function buildBaseUrlCandidates(baseUrl, apiKey) {
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
-  if (normalizedBaseUrl) {
-    return {
-      baseUrl: normalizedBaseUrl,
-      baseUrlCandidates: [normalizedBaseUrl],
-      baseUrlSource: 'explicit',
-    };
-  }
-
-  const inferredBaseUrl = inferBaseUrlFromApiKey(apiKey);
+function buildBaseUrlCandidates() {
   return {
-    baseUrl: inferredBaseUrl,
-    baseUrlCandidates: [inferredBaseUrl, ...KNOWN_BASE_URLS.filter((candidate) => candidate !== inferredBaseUrl)],
-    baseUrlSource: 'inferred',
+    baseUrl: DEFAULT_BASE_URL,
+    baseUrlCandidates: [DEFAULT_BASE_URL],
+    baseUrlSource: 'default',
   };
 }
 
 function resolveSavedBaseUrl(config) {
   if (!config || !config.apiKey) return null;
-
-  const normalizedBaseUrl = normalizeBaseUrl(config.baseUrl);
-  if (!normalizedBaseUrl) {
-    return buildBaseUrlCandidates(null, config.apiKey);
-  }
-
-  return {
-    baseUrl: normalizedBaseUrl,
-    baseUrlCandidates: [normalizedBaseUrl],
-    baseUrlSource: config.baseUrlSource || 'saved',
-  };
+  return buildBaseUrlCandidates();
 }
 
 function createConfig({ apiKey, baseUrl, baseUrlCandidates, source, baseUrlSource, configPath }) {
@@ -156,7 +127,7 @@ function loadExplicitConfig(filePath) {
 
 function getConfig(parsed = getRuntimeParsedArgs()) {
   if (process.env.PO_ONCE_AGENT_API_KEY) {
-    const resolved = buildBaseUrlCandidates(process.env.PO_ONCE_BASE_URL, process.env.PO_ONCE_AGENT_API_KEY);
+    const resolved = buildBaseUrlCandidates();
     return createConfig({
       apiKey: process.env.PO_ONCE_AGENT_API_KEY,
       baseUrl: resolved.baseUrl,
@@ -184,7 +155,7 @@ function saveConfig(nextConfig, global = true, parsed = getRuntimeParsedArgs()) 
   const filePath = getExplicitConfigPath(parsed) || (global ? CONFIG_FILE : LOCAL_CONFIG);
   const existing = readJson(filePath) || {};
   const apiKey = nextConfig.apiKey || existing.apiKey;
-  const baseUrl = normalizeBaseUrl(nextConfig.baseUrl || existing.baseUrl || inferBaseUrlFromApiKey(apiKey));
+  const baseUrl = DEFAULT_BASE_URL;
   const merged = {
     ...existing,
     ...nextConfig,
@@ -665,10 +636,7 @@ async function uploadFile(filePath) {
 }
 
 async function verifyConfig(config) {
-  return requestWithConfig(config, 'GET', '/api/agent/v1/accounts', undefined, {
-    fallbackStatuses: config.baseUrlSource === 'inferred' ? [404] : [],
-    retryOnNetworkError: config.baseUrlSource === 'inferred',
-  });
+  return requestWithConfig(config, 'GET', '/api/agent/v1/accounts');
 }
 
 async function requestAccounts(config = getConfig()) {
@@ -677,10 +645,7 @@ async function requestAccounts(config = getConfig()) {
     process.exit(1);
   }
 
-  const result = await requestWithConfig(config, 'GET', '/api/agent/v1/accounts', undefined, {
-    fallbackStatuses: config.baseUrlSource === 'inferred' ? [404] : [],
-    retryOnNetworkError: config.baseUrlSource === 'inferred',
-  });
+  const result = await requestWithConfig(config, 'GET', '/api/agent/v1/accounts');
   return result.data;
 }
 
@@ -703,10 +668,7 @@ async function buildHealthReport(config = getConfig()) {
   };
 
   try {
-    const result = await requestWithConfig(config, 'GET', '/api/agent/v1/accounts', undefined, {
-      fallbackStatuses: config.baseUrlSource === 'inferred' ? [404] : [],
-      retryOnNetworkError: config.baseUrlSource === 'inferred',
-    });
+    const result = await requestWithConfig(config, 'GET', '/api/agent/v1/accounts');
     const collection = extractAccountsCollection(result.data);
     return {
       ...baseReport,
@@ -786,10 +748,10 @@ const COMMANDS = {
     const parsed = parseArgs(args);
     const apiKey = parsed['api-key'];
     if (!apiKey) {
-      throw new Error(`Usage: ${usage(`setup --api-key <api_key> [--base-url ${DEFAULT_BASE_URL}]`)}`);
+      throw new Error(`Usage: ${usage('setup --api-key <api_key>')}`);
     }
 
-    const resolved = buildBaseUrlCandidates(parsed['base-url'], apiKey);
+    const resolved = buildBaseUrlCandidates();
     const config = createConfig({
       apiKey,
       baseUrl: resolved.baseUrl,
@@ -803,18 +765,10 @@ const COMMANDS = {
     if (!parsed['no-verify']) {
       const verification = await verifyConfig(config);
       verifiedBaseUrl = verification.baseUrl;
-      if (verification.baseUrl !== config.baseUrl) {
-        info(`Setup verification succeeded against ${verification.baseUrl} after ${config.baseUrl} failed. Saving the verified base URL.`);
-      } else {
-        info(`Setup verification succeeded against ${verification.baseUrl}.`);
-      }
+      info(`Setup verification succeeded against ${verification.baseUrl}.`);
     }
 
-    const savedBaseUrlSource = parsed['base-url']
-      ? 'explicit'
-      : verifiedBaseUrl === inferBaseUrlFromApiKey(apiKey)
-        ? 'inferred'
-        : 'fallback';
+    const savedBaseUrlSource = 'default';
 
     const filePath = saveConfig({ baseUrl: verifiedBaseUrl, apiKey, baseUrlSource: savedBaseUrlSource }, global, parsed);
     const location = getExplicitConfigPath(parsed) ? 'explicit' : global ? 'global' : 'local';
@@ -969,9 +923,7 @@ const COMMANDS = {
       },
     },
     defaultBaseUrl: DEFAULT_BASE_URL,
-    testBaseUrl: DEV_BASE_URL,
-    testKeyPrefix: DEV_API_KEY_PREFIX,
-    env: ['PO_ONCE_BASE_URL', 'PO_ONCE_AGENT_API_KEY', 'PO_ONCE_CONFIG_PATH'],
+    env: ['PO_ONCE_AGENT_API_KEY', 'PO_ONCE_CONFIG_PATH'],
   }),
 };
 
