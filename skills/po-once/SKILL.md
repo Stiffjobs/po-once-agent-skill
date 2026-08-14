@@ -4,7 +4,7 @@ description: >
   Use Po Once's organization-scoped agent API to list connected accounts, upload
   media, create content, schedule or publish posts, inspect status, and delete
   eligible scheduled posts through a local helper script.
-last-updated: 2026-04-25
+last-updated: 2026-08-14
 allowed-tools: Bash(./scripts/po-once.cjs:*)
 ---
 
@@ -196,6 +196,7 @@ The helper script wraps these endpoints:
    - Do not cite unrelated connected accounts as context unless the user asked for comparison.
 8. If ambiguity remains after `accounts`, ask one short clarification question before proceeding.
 9. Draft content and confirm whether the user wants direct or scheduled posting.
+   - YouTube profiles only accept `video` posts — before calling `post` or `publish`, drop YouTube targets from `--accounts` for image/text content, or ask the user which they want.
 10. Use `publish` for the normal end-to-end posting path.
 11. Use `posts` or `posts:get --status-only` to confirm status.
 12. Only use `posts:delete` when the user explicitly wants a scheduled post removed.
@@ -215,6 +216,7 @@ The helper script wraps these endpoints:
 - `accounts` may return multiple brands, clients, or experiments; do not treat them as one analysis group by default.
 - If the user names one Threads profile, keep both analytics and keyword discovery tied to that exact target.
 - If the API returns `SUBSCRIPTION_REQUIRED`, stop and ask the user to upgrade the organization to an active Starter or Pro plan, or switch organizations.
+- If a YouTube profile is targeted with an image or text post, the API rejects it with the error `YouTube only supports video posts. Remove the YouTube profile or pick a video.` — resolve it by adjusting the targets (remove the YouTube profile or switch to video content), not by retrying the same request.
 - Only delete a post when both `type === "scheduled"` and `status === "scheduled"`.
 - Before calling `DELETE /api/agent/v1/posts/:id`, inspect the post first to confirm it is still scheduled and has not started processing.
 - Do not delete direct posts, published posts, failed posts, errored posts, posts already processing, or any post with another `type` or `status`.
