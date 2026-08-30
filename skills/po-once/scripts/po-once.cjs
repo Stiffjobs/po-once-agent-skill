@@ -3,6 +3,10 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const http = require('http');
+const https = require('https');
+const crypto = require('crypto');
+const { spawn } = require('child_process');
 
 const DEFAULT_BASE_URL = 'https://dynamic-lapwing-647.convex.site';
 const SKILL_SCRIPT_PATH = '<skill-path>/scripts/po-once.cjs';
@@ -27,6 +31,15 @@ const SENSITIVE_FIELD_NAMES = new Set([
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'po-once');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 const LOCAL_CONFIG = path.join(process.cwd(), '.po-once', 'config.json');
+const JOBS_DIR = path.join(CONFIG_DIR, 'jobs');
+const BACKGROUND_COMMANDS = new Set(['upload', 'publish']);
+const UPLOAD_MAX_ATTEMPTS = 3;
+const UPLOAD_PROGRESS_INTERVAL_MS = 5000;
+const UPLOAD_READ_CHUNK_BYTES = 1024 * 1024;
+const JOB_WAIT_DEFAULT_SECONDS = 60;
+const JOB_WAIT_MAX_SECONDS = 540;
+const JOB_WAIT_POLL_MS = 2000;
+let activeJob = null;
 const META_ANALYTICS_PROVIDERS = new Set(['facebook', 'instagram', 'threads']);
 const THREADS_PROVIDER = 'threads';
 const TIKTOK_PROVIDER = 'tiktok';
@@ -197,7 +210,11 @@ function redactSensitiveData(value) {
 }
 
 function output(data) {
-  console.log(JSON.stringify(redactSensitiveData(data), null, 2));
+  const redacted = redactSensitiveData(data);
+  if (activeJob) {
+    updateJobRecord(activeJob.id, { status: 'succeeded', result: redacted, finishedAt: new Date().toISOString() });
+  }
+  console.log(JSON.stringify(redacted, null, 2));
 }
 
 function error(message) {
@@ -601,7 +618,79 @@ async function requestWithConfig(config, method, endpoint, body, options = {}) {
   throw lastError || new Error('Request failed.');
 }
 
-async function uploadFile(filePath) {
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return String(bytes);
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableUploadError(err) {
+  if (!err) return false;
+  if (err.statusCode === undefined) return true; // network / socket error
+  return err.statusCode === 403 || err.statusCode === 408 || err.statusCode === 429 || err.statusCode >= 500;
+}
+
+// Streams the file from disk straight into the PUT request. Memory stays flat
+// (about one read chunk) no matter how large the file is, which is what lets
+// multi-GB videos upload on ordinary laptops.
+function putFileToUrl(uploadUrl, absolutePath, sizeBytes, mimeType, onProgress) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(uploadUrl);
+    const transport = url.protocol === 'http:' ? http : https;
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+
+    const req = transport.request(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': mimeType,
+        'Content-Length': sizeBytes,
+      },
+    }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        if (body.length < 4096) body += chunk;
+      });
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          finish(resolve);
+          return;
+        }
+        const err = new Error(`Upload failed (${res.statusCode})${body ? `: ${body.replace(/\s+/g, ' ').slice(0, 300)}` : ''}.`);
+        err.statusCode = res.statusCode;
+        finish(reject, err);
+      });
+      res.on('error', (err) => finish(reject, err));
+    });
+
+    req.on('error', (err) => finish(reject, err));
+
+    const stream = fs.createReadStream(absolutePath, { highWaterMark: UPLOAD_READ_CHUNK_BYTES });
+    let sent = 0;
+    stream.on('data', (chunk) => {
+      sent += chunk.length;
+      onProgress(sent);
+    });
+    stream.on('error', (err) => {
+      req.destroy(err);
+      finish(reject, err);
+    });
+    stream.pipe(req);
+  });
+}
+
+async function uploadFile(filePath, options = {}) {
   const config = getConfig();
   if (!config || !config.baseUrl || !config.apiKey) {
     error(`Missing Po Once credentials. Run: ${usage('setup --api-key <api_key>')} or use ${RELATIVE_SCRIPT_PATH_NOTE}.`);
@@ -612,27 +701,198 @@ async function uploadFile(filePath) {
   if (!fs.existsSync(absolutePath)) throw new Error(`File not found: ${absolutePath}`);
 
   const stats = fs.statSync(absolutePath);
+  if (!stats.isFile()) throw new Error(`Not a file: ${absolutePath}`);
+  if (stats.size === 0) throw new Error(`File is empty: ${absolutePath}`);
+
   const mimeType = inferMimeType(absolutePath);
-  const createUpload = await request('POST', '/api/agent/v1/media/create-upload-url', {
-    filename: path.basename(absolutePath),
-    contentType: mimeType,
+  const sizeBytes = stats.size;
+  const fileName = path.basename(absolutePath);
+  const fileLabel = options.fileCount > 1 ? `${fileName} (${options.fileIndex}/${options.fileCount})` : fileName;
+
+  let lastError = null;
+  for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt += 1) {
+    // Sending sizeBytes lets the API reject the upload up front when the
+    // organization's storage quota would be exceeded, instead of after
+    // transferring the whole file.
+    const createUpload = await request('POST', '/api/agent/v1/media/create-upload-url', {
+      filename: fileName,
+      contentType: mimeType,
+      sizeBytes,
+    });
+
+    const startedAt = Date.now();
+    let lastReportAt = 0;
+    const reportProgress = (sent, force) => {
+      const now = Date.now();
+      if (!force && now - lastReportAt < UPLOAD_PROGRESS_INTERVAL_MS) return;
+      lastReportAt = now;
+      const elapsedSeconds = Math.max((now - startedAt) / 1000, 0.001);
+      const bytesPerSecond = sent / elapsedSeconds;
+      const remainingSeconds = bytesPerSecond > 0 ? Math.round((sizeBytes - sent) / bytesPerSecond) : null;
+      const percent = Math.floor((sent / sizeBytes) * 100);
+      info(`Uploading ${fileLabel}: ${percent}% (${formatBytes(sent)} / ${formatBytes(sizeBytes)}, ${formatBytes(bytesPerSecond)}/s${remainingSeconds !== null && sent < sizeBytes ? `, ~${remainingSeconds}s left` : ''})`);
+      if (activeJob) {
+        updateJobRecord(activeJob.id, {
+          progress: {
+            file: fileName,
+            fileIndex: options.fileIndex || 1,
+            fileCount: options.fileCount || 1,
+            attempt,
+            sentBytes: sent,
+            totalBytes: sizeBytes,
+            percent,
+            bytesPerSecond: Math.round(bytesPerSecond),
+            remainingSeconds,
+            updatedAt: new Date(now).toISOString(),
+          },
+        });
+      }
+    };
+
+    info(`Uploading ${fileLabel}: ${formatBytes(sizeBytes)}${attempt > 1 ? ` (attempt ${attempt}/${UPLOAD_MAX_ATTEMPTS})` : ''}`);
+    try {
+      await putFileToUrl(createUpload.uploadUrl, absolutePath, sizeBytes, mimeType, (sent) => reportProgress(sent, false));
+      reportProgress(sizeBytes, true);
+      return {
+        file: absolutePath,
+        mimeType,
+        sizeBytes,
+        storageKey: createUpload.key,
+        uploadMethod: createUpload.method || 'PUT',
+        uploadSeconds: Math.round((Date.now() - startedAt) / 1000),
+      };
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (!isRetryableUploadError(lastError) || attempt === UPLOAD_MAX_ATTEMPTS) break;
+      info(`Upload attempt ${attempt} failed (${lastError.message}). Retrying with a fresh upload URL.`);
+      await sleep(2000 * attempt);
+    }
+  }
+
+  throw new Error(`${lastError ? lastError.message : 'Upload failed.'} File: ${fileLabel}, ${formatBytes(sizeBytes)}. The file was not modified; do not compress or re-encode it. Retry the same command (use --background for long uploads).`);
+}
+
+function jobFilePath(jobId) {
+  if (!/^[a-z0-9-]+$/i.test(String(jobId))) throw new Error(`Invalid job id: ${jobId}`);
+  return path.join(JOBS_DIR, `${jobId}.json`);
+}
+
+function readJobRecord(jobId) {
+  const record = readJson(jobFilePath(jobId));
+  if (!record) throw new Error(`Unknown job id: ${jobId}. Run ${usage('jobs:list')} to see recent background jobs.`);
+  return record;
+}
+
+function updateJobRecord(jobId, patch) {
+  const filePath = jobFilePath(jobId);
+  const existing = readJson(filePath) || {};
+  writeJson(filePath, { ...existing, ...patch, updatedAt: new Date().toISOString() });
+}
+
+function isProcessAlive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err && err.code === 'EPERM';
+  }
+}
+
+function reconcileJobRecord(record) {
+  if (record.status === 'running' && !isProcessAlive(record.pid)) {
+    updateJobRecord(record.id, {
+      status: 'failed',
+      error: `Background process (pid ${record.pid}) exited before reporting a result. Check the log file for details.`,
+      finishedAt: new Date().toISOString(),
+    });
+    return readJobRecord(record.id);
+  }
+  return record;
+}
+
+function summarizeJob(record) {
+  return pickDefinedFields({
+    jobId: record.id,
+    command: record.command,
+    status: record.status,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    finishedAt: record.finishedAt,
+    progress: record.progress,
+    result: record.result,
+    error: record.error,
+    logFile: record.logFile,
+    statusCommand: record.status === 'running' ? usage(`jobs:status --id ${record.id}`) : undefined,
+    waitCommand: record.status === 'running' ? usage(`jobs:wait --id ${record.id} --timeout ${JOB_WAIT_DEFAULT_SECONDS}`) : undefined,
+  });
+}
+
+function isTruthyFlag(value) {
+  return value === true || value === 'true' || value === '1';
+}
+
+function stripBackgroundFlag(args) {
+  const result = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (token === '--background') {
+      const next = args[index + 1];
+      if (next === 'true' || next === 'false' || next === '1' || next === '0') index += 1;
+      continue;
+    }
+    result.push(token);
+  }
+  return result;
+}
+
+function startBackgroundJob(command, args) {
+  const jobId = `${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`;
+  const jobFile = jobFilePath(jobId);
+  const logFile = path.join(JOBS_DIR, `${jobId}.log`);
+  const childArgs = [...stripBackgroundFlag(args), '--job-id', jobId];
+
+  writeJson(jobFile, {
+    id: jobId,
+    command,
+    status: 'running',
+    createdAt: new Date().toISOString(),
+    logFile,
+    cwd: process.cwd(),
   });
 
-  const uploadResponse = await fetch(createUpload.uploadUrl, {
-    method: createUpload.method || 'PUT',
-    headers: { 'Content-Type': mimeType },
-    body: fs.readFileSync(absolutePath),
+  const logFd = fs.openSync(logFile, 'a');
+  const child = spawn(process.execPath, [__filename, command, ...childArgs], {
+    detached: true,
+    stdio: ['ignore', logFd, logFd],
+    env: process.env,
+    cwd: process.cwd(),
   });
+  fs.closeSync(logFd);
+  child.unref();
+  updateJobRecord(jobId, { pid: child.pid });
 
-  if (!uploadResponse.ok) throw new Error(`Upload failed (${uploadResponse.status}).`);
+  info(`Started background job ${jobId} (pid ${child.pid}). It keeps running after this command returns.`);
+  console.log(JSON.stringify({
+    jobId,
+    command,
+    status: 'running',
+    pid: child.pid,
+    logFile,
+    statusCommand: usage(`jobs:status --id ${jobId}`),
+    waitCommand: usage(`jobs:wait --id ${jobId} --timeout ${JOB_WAIT_DEFAULT_SECONDS}`),
+    note: 'Poll jobs:wait until status is succeeded or failed. Do not re-run the command while the job is running.',
+  }, null, 2));
+}
 
-  return {
-    file: absolutePath,
-    mimeType,
-    sizeBytes: stats.size,
-    storageKey: createUpload.key,
-    uploadMethod: createUpload.method || 'PUT',
-  };
+async function waitForJob(jobId, timeoutSeconds) {
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  let record = reconcileJobRecord(readJobRecord(jobId));
+  while (record.status === 'running' && Date.now() < deadline) {
+    await sleep(Math.min(JOB_WAIT_POLL_MS, Math.max(deadline - Date.now(), 0)));
+    record = reconcileJobRecord(readJobRecord(jobId));
+  }
+  return record;
 }
 
 async function verifyConfig(config) {
@@ -726,6 +986,7 @@ function buildPostPayload(parsed) {
     instagramLocationId: parsed['instagram-location-id'],
     instagramLocationName: parsed['instagram-location-name'],
     mediaOrderOverride: parseCommaList(parsed['media-order-override']),
+    firstComment: parsed['first-comment'],
   };
 
   for (const [key, value] of Object.entries(optionalFields)) {
@@ -858,7 +1119,9 @@ const COMMANDS = {
     if (!files || files.length === 0) throw new Error('Missing --file or --files.');
     if (!parsed.accounts) throw new Error('Missing --accounts. Use comma-separated id/socialProfileId values from accounts.');
     const uploads = [];
-    for (const filePath of files) uploads.push(await uploadFile(filePath));
+    for (let index = 0; index < files.length; index += 1) {
+      uploads.push(await uploadFile(files[index], { fileIndex: index + 1, fileCount: files.length }));
+    }
     const postType = parsed['post-type'] || inferPostType(files);
     const content = await request('POST', '/api/agent/v1/contents', {
       title: parsed.title,
@@ -892,6 +1155,41 @@ const COMMANDS = {
     assertPostDeleteEligible(post, parsed.id);
     output(await request('DELETE', `/api/agent/v1/posts/${parsed.id}`));
   },
+  'jobs:status': async (args) => {
+    const parsed = parseArgs(args);
+    if (!parsed.id) throw new Error(`Usage: ${usage('jobs:status --id <job_id>')}`);
+    output(summarizeJob(reconcileJobRecord(readJobRecord(parsed.id))));
+  },
+  'jobs:wait': async (args) => {
+    const parsed = parseArgs(args);
+    if (!parsed.id) throw new Error(`Usage: ${usage(`jobs:wait --id <job_id> --timeout ${JOB_WAIT_DEFAULT_SECONDS}`)}`);
+    const requested = parsed.timeout === undefined ? JOB_WAIT_DEFAULT_SECONDS : parseInteger(parsed.timeout, 'timeout');
+    const timeoutSeconds = Math.min(Math.max(requested, 1), JOB_WAIT_MAX_SECONDS);
+    output(summarizeJob(await waitForJob(parsed.id, timeoutSeconds)));
+  },
+  'jobs:list': async () => {
+    if (!fs.existsSync(JOBS_DIR)) {
+      output({ jobs: [] });
+      return;
+    }
+    const jobs = fs.readdirSync(JOBS_DIR)
+      .filter((name) => name.endsWith('.json'))
+      .map((name) => readJson(path.join(JOBS_DIR, name)))
+      .filter((record) => record && record.id)
+      .map(reconcileJobRecord)
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+      .slice(0, 20)
+      .map((record) => pickDefinedFields({
+        jobId: record.id,
+        command: record.command,
+        status: record.status,
+        createdAt: record.createdAt,
+        finishedAt: record.finishedAt,
+        percent: record.progress ? record.progress.percent : undefined,
+        error: record.error,
+      }));
+    output({ jobs });
+  },
   help: async () => output({
     name: 'Po Once Agent API Skill',
     scriptPath: SKILL_SCRIPT_PATH,
@@ -909,6 +1207,41 @@ const COMMANDS = {
           'TikTok profiles support --cursor and --max-count.',
           'Do not combine --days with --period, --since, or --until.',
         ],
+      },
+      upload: {
+        summary: 'Upload one media file. Streams from disk, so file size is only limited by the destination platform; never compress or re-encode to make an upload "fit".',
+        usage: [
+          `${usage('upload --file ./clip.mp4')}`,
+          `${usage('upload --file ./clip.mp4 --background')}`,
+        ],
+        notes: [
+          'Progress lines are printed to stderr every few seconds.',
+          'Use --background for large files or slow connections; the upload continues after the command returns. Poll with jobs:wait.',
+          'Failed transfers are retried automatically with a fresh upload URL.',
+        ],
+      },
+      publish: {
+        summary: 'Upload, create content, and create a post in one step.',
+        usage: [
+          `${usage('publish --file ./clip.mp4 --caption "..." --accounts <id,id> --mode direct')}`,
+          `${usage('publish --file ./clip.mp4 --caption "..." --accounts <id,id> --mode scheduled --schedule 2026-04-17T09:00:00Z --background')}`,
+        ],
+        notes: [
+          'Supports --background exactly like upload; the final result (uploads, content, post) is stored on the job.',
+        ],
+      },
+      'jobs:wait': {
+        summary: 'Wait for a background job to finish (default 60s, max 540s) and print its status/result.',
+        usage: [`${usage('jobs:wait --id <job_id> --timeout 60')}`],
+        notes: ['Returns status running with progress if the job is still transferring; call again.'],
+      },
+      'jobs:status': {
+        summary: 'Print a background job\'s current status, progress, result, or error without waiting.',
+        usage: [`${usage('jobs:status --id <job_id>')}`],
+      },
+      'jobs:list': {
+        summary: 'List the 20 most recent background jobs.',
+        usage: [`${usage('jobs:list')}`],
       },
       'keyword-search': {
         summary: 'Run ad-hoc Threads keyword discovery using a Threads linkedAccountId from accounts.',
@@ -935,10 +1268,34 @@ async function main() {
     error(`Available commands: ${Object.keys(COMMANDS).join(', ')}`);
     process.exit(1);
   }
+  const parsed = parseArgs(args);
+  if (isTruthyFlag(parsed.background)) {
+    if (!BACKGROUND_COMMANDS.has(command)) {
+      error(`--background is only supported for: ${Array.from(BACKGROUND_COMMANDS).join(', ')}.`);
+      process.exit(1);
+    }
+    try {
+      startBackgroundJob(command, args);
+    } catch (err) {
+      error(err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (parsed['job-id'] && BACKGROUND_COMMANDS.has(command)) {
+    activeJob = { id: String(parsed['job-id']) };
+    updateJobRecord(activeJob.id, { status: 'running', pid: process.pid, startedAt: new Date().toISOString() });
+  }
+
   try {
     await COMMANDS[command](args);
   } catch (err) {
-    error(err instanceof Error ? err.message : String(err));
+    const message = err instanceof Error ? err.message : String(err);
+    if (activeJob) {
+      updateJobRecord(activeJob.id, { status: 'failed', error: message, finishedAt: new Date().toISOString() });
+    }
+    error(message);
     process.exit(1);
   }
 }

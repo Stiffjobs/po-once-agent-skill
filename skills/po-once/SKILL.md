@@ -4,7 +4,7 @@ description: >
   Use Po Once's organization-scoped agent API to list connected accounts, upload
   media, create content, schedule or publish posts, inspect status, and delete
   eligible scheduled posts through a local helper script.
-last-updated: 2026-08-14
+last-updated: 2026-08-30
 allowed-tools: Bash(./scripts/po-once.cjs:*)
 ---
 
@@ -65,14 +65,37 @@ PO_ONCE_CONFIG_PATH=/absolute/path/to/config.json ./scripts/po-once.cjs accounts
 | `./scripts/po-once.cjs analytics:profile --profile-id <social_profile_id> --days 28` | Fetch profile analytics; defaults to `days=28` for Meta profiles |
 | `./scripts/po-once.cjs analytics:profile --profile-id <social_profile_id> --cursor <cursor> --max-count 20` | Fetch TikTok analytics with TikTok-only pagination params |
 | `./scripts/po-once.cjs keyword-search --linked-account-id <threads_linked_account_id> --keyword "launch tips" --search-type RECENT` | Run ad-hoc Threads keyword discovery |
-| `./scripts/po-once.cjs upload --file ./clip.mp4` | Upload media |
+| `./scripts/po-once.cjs upload --file ./clip.mp4` | Upload media (streams from disk; any size the target platform accepts) |
+| `./scripts/po-once.cjs upload --file ./clip.mp4 --background` | Start the upload as a detached background job and return a `jobId` immediately |
 | `./scripts/po-once.cjs content:create --caption "..." --post-type video --storage-key <key> --size-bytes 1234` | Create content |
 | `./scripts/po-once.cjs post --content-id <id> --accounts social_profile_id_1,social_profile_id_2 --mode scheduled --schedule 2026-04-17T09:00:00Z --timezone UTC` | Create post batch; `--accounts` must be comma-separated `id` or `socialProfileId` values returned by `accounts` |
 | `./scripts/po-once.cjs publish --file ./clip.mp4 --caption "..." --accounts social_profile_id_1,social_profile_id_2 --mode direct` | Upload, create content, and create post; `--accounts` must be comma-separated `id` or `socialProfileId` values returned by `accounts` |
+| `./scripts/po-once.cjs publish ... --background` | Same as `publish`, but runs detached; the final `{ uploads, content, post }` is stored on the job |
+| `./scripts/po-once.cjs jobs:wait --id <job_id> --timeout 60` | Wait up to N seconds (max 540) for a background job; prints status, progress, result, or error |
+| `./scripts/po-once.cjs jobs:status --id <job_id>` | Print a background job's state without waiting |
+| `./scripts/po-once.cjs jobs:list` | List the 20 most recent background jobs |
 | `./scripts/po-once.cjs posts --limit 20 --status scheduled` | List posts |
 | `./scripts/po-once.cjs posts:get --id <post_id>` | Get one post |
 | `./scripts/po-once.cjs posts:get --id <post_id> --status-only` | Get a minimal status view for one post |
 | `./scripts/po-once.cjs posts:delete --id <post_id>` | Delete an eligible scheduled post |
+
+## Large Media Files
+
+Po Once does not impose a file-size limit of its own. The helper streams the file from disk directly to storage, retries failed transfers with a fresh upload URL, and prints progress to stderr every few seconds. The only size limits that apply are the destination platform's.
+
+Rules:
+
+- Never compress, transcode, re-encode, trim, or otherwise modify a media file to make an upload "fit". Upload the original file as-is.
+- Never tell the user a file is too large to upload. If an upload fails, report the actual error message from the helper.
+- Upload time depends only on the user's connection. As a guide, 300 MB takes about 4 minutes at 10 Mbps and about 25 seconds at 100 Mbps.
+- For files over roughly 200 MB, or whenever the upload may outlast your tool's execution timeout, run `upload` or `publish` with `--background`:
+  1. Run `./scripts/po-once.cjs publish --file ./long.mp4 --caption "..." --accounts <ids> --mode direct --background`. It returns a `jobId` immediately.
+  2. Run `./scripts/po-once.cjs jobs:wait --id <job_id> --timeout 60`. It returns when the job finishes or after 60 seconds with `status: "running"` and a `progress` object (percent, bytes, speed, seconds left).
+  3. Repeat `jobs:wait` until `status` is `succeeded` (the result is in `result`) or `failed` (the reason is in `error`).
+- Do not start a second upload of the same file while a job is still `running`.
+- If the API returns `STORAGE_LIMIT_EXCEEDED`, the organization's storage quota is full. Stop and ask the user to delete unused content in Po Once or upgrade to Pro; shrinking the file does not help.
+
+Storage accounting: Po Once records the actual stored size of each uploaded object and counts it against the organization's storage quota. `sizeBytes` sent by the helper is only a hint used to reject over-quota uploads before the transfer starts.
 
 ## Account IDs
 
@@ -197,7 +220,8 @@ The helper script wraps these endpoints:
 8. If ambiguity remains after `accounts`, ask one short clarification question before proceeding.
 9. Draft content and confirm whether the user wants direct or scheduled posting.
    - YouTube profiles only accept `video` posts — before calling `post` or `publish`, drop YouTube targets from `--accounts` for image/text content, or ask the user which they want.
-10. Use `publish` for the normal end-to-end posting path.
+   - If the user wants a link in a Facebook, Instagram, or Threads post, put it in `--first-comment "..."` instead of the caption; it is posted as a comment right after publishing and avoids Meta's reach penalty for links in captions. Ignored for other platforms.
+10. Use `publish` for the normal end-to-end posting path. Add `--background` for large files and poll with `jobs:wait` (see Large Media Files). Never compress or re-encode media.
 11. Use `posts` or `posts:get --status-only` to confirm status.
 12. Only use `posts:delete` when the user explicitly wants a scheduled post removed.
 13. Before deleting, inspect the post first and confirm both `type === "scheduled"` and `status === "scheduled"`.
@@ -216,6 +240,7 @@ The helper script wraps these endpoints:
 - `accounts` may return multiple brands, clients, or experiments; do not treat them as one analysis group by default.
 - If the user names one Threads profile, keep both analytics and keyword discovery tied to that exact target.
 - If the API returns `SUBSCRIPTION_REQUIRED`, stop and ask the user to upgrade the organization to an active Starter or Pro plan, or switch organizations.
+- If the API returns `STORAGE_LIMIT_EXCEEDED`, stop and ask the user to free storage or upgrade to Pro. Do not compress the file and retry.
 - If a YouTube profile is targeted with an image or text post, the API rejects it with the error `YouTube only supports video posts. Remove the YouTube profile or pick a video.` — resolve it by adjusting the targets (remove the YouTube profile or switch to video content), not by retrying the same request.
 - Only delete a post when both `type === "scheduled"` and `status === "scheduled"`.
 - Before calling `DELETE /api/agent/v1/posts/:id`, inspect the post first to confirm it is still scheduled and has not started processing.

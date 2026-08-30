@@ -41,6 +41,20 @@ layout that the `skills` CLI discovers automatically.
 `./skills/po-once/scripts/po-once.cjs accounts`; the helper sends them as
 `socialProfileIds`.
 
+## Large Files
+
+The helper streams media from disk, so file size is limited only by the
+destination platform. For long videos (roughly 200 MB and up) or slow
+connections, run `upload`/`publish` with `--background` and poll:
+
+```bash
+./skills/po-once/scripts/po-once.cjs publish --file ./long.mp4 --caption "..." --accounts <ids> --mode direct --background
+./skills/po-once/scripts/po-once.cjs jobs:wait --id <job_id> --timeout 60
+```
+
+Never compress or re-encode a file to make an upload "fit"; see the Large
+Media Files section in `skills/po-once/SKILL.md`.
+
 ## License
 
 Released under the MIT License. See `LICENSE`.
