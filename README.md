@@ -18,6 +18,21 @@ npx skills add Stiffjobs/po-once-agent-skill
 This works because the repository exposes a standard `skills/po-once/SKILL.md`
 layout that the `skills` CLI discovers automatically.
 
+## Update
+
+Pull the latest version of an installed skill with:
+
+```bash
+npx skills update po-once
+```
+
+Run `npx skills update` with no arguments to update every installed skill.
+Add `-g` to target a global install or `-p` for a project install.
+
+Re-running `npx skills add Stiffjobs/po-once-agent-skill` also works and
+overwrites the installed copy. The `last-updated` date in
+`skills/po-once/SKILL.md` shows which version you have.
+
 ## Quick Start
 
 ```bash
