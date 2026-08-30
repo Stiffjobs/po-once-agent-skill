@@ -556,8 +556,7 @@ function inferPostType(filePaths) {
 async function request(method, endpoint, body) {
   const config = getConfig();
   if (!config || !config.baseUrl || !config.apiKey) {
-    error(`Missing Po Once credentials. Run: ${usage('setup --api-key <api_key>')} or use ${RELATIVE_SCRIPT_PATH_NOTE}.`);
-    process.exit(1);
+    throw new Error(`Missing Po Once credentials. Run: ${usage('setup --api-key <api_key>')} or use ${RELATIVE_SCRIPT_PATH_NOTE}.`);
   }
 
   const result = await requestWithConfig(config, method, endpoint, body);
@@ -693,8 +692,7 @@ function putFileToUrl(uploadUrl, absolutePath, sizeBytes, mimeType, onProgress) 
 async function uploadFile(filePath, options = {}) {
   const config = getConfig();
   if (!config || !config.baseUrl || !config.apiKey) {
-    error(`Missing Po Once credentials. Run: ${usage('setup --api-key <api_key>')} or use ${RELATIVE_SCRIPT_PATH_NOTE}.`);
-    process.exit(1);
+    throw new Error(`Missing Po Once credentials. Run: ${usage('setup --api-key <api_key>')} or use ${RELATIVE_SCRIPT_PATH_NOTE}.`);
   }
 
   const absolutePath = path.resolve(filePath);
@@ -901,8 +899,7 @@ async function verifyConfig(config) {
 
 async function requestAccounts(config = getConfig()) {
   if (!config || !config.baseUrl || !config.apiKey) {
-    error(`Missing Po Once credentials. Run: ${usage('setup --api-key <api_key>')} or use ${RELATIVE_SCRIPT_PATH_NOTE}.`);
-    process.exit(1);
+    throw new Error(`Missing Po Once credentials. Run: ${usage('setup --api-key <api_key>')} or use ${RELATIVE_SCRIPT_PATH_NOTE}.`);
   }
 
   const result = await requestWithConfig(config, 'GET', '/api/agent/v1/accounts');
@@ -986,7 +983,6 @@ function buildPostPayload(parsed) {
     instagramLocationId: parsed['instagram-location-id'],
     instagramLocationName: parsed['instagram-location-name'],
     mediaOrderOverride: parseCommaList(parsed['media-order-override']),
-    firstComment: parsed['first-comment'],
   };
 
   for (const [key, value] of Object.entries(optionalFields)) {

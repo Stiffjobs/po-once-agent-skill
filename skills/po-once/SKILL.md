@@ -12,8 +12,6 @@ allowed-tools: Bash(./scripts/po-once.cjs:*)
 
 Portable skill bundle for AI agents to automate Po Once through the agent API.
 
-Interpretation rule: when a user provides both a target account and a broad noun like "overview", "analytics", or "performance", the named target wins unless the user explicitly asks for broader comparison.
-
 ## Setup
 
 Create an API key in Po Once and run the bundled setup command:
@@ -107,54 +105,22 @@ For Threads keyword discovery, use the `linkedAccountId` returned by `accounts`,
 
 If the user gives ambiguous account input, run `accounts` and match by visible metadata such as provider, display name, username, or avatar before choosing the returned `id` or `socialProfileId`.
 
-When the user gives a named target such as `poonce_official`, resolve that target first and stop there unless the user explicitly requests comparison.
-Do not treat `accounts` output as a list to analyze broadly by default. It is a resolution step, not a signal to fan out.
+Treat `accounts` as a target-resolution step, not an invitation to analyze every connected account. A named account limits the task to that account, even when the user asks for an "overview". Expand only when the user explicitly requests an organization-wide comparison or a cross-platform view of the same brand; ask one short question if same-brand matching is ambiguous.
 
-For analytics:
-
-- use the resolved target's `id` or `socialProfileId`
-- only analyze additional profiles if they are clearly the same brand/account identity and the user requested a cross-platform view
-
-For Threads keyword discovery:
-
-- use the resolved Threads target's `linkedAccountId`
-- never use another Threads linked account from the same organization unless the user explicitly switches targets
-
-## Scope And Target Resolution
-
-Always resolve the user's intended scope before fetching analytics, keyword discovery, or posting data.
-
-Scope rules:
-
-- If the user names a specific account, handle, username, display name, or provider-specific profile, all analysis must stay scoped to that target unless the user explicitly asks for comparison across other accounts.
-- Do not broaden analysis to other connected accounts in the same organization just because they are returned by `accounts`.
-- If the user says "overview" and also names a target account, interpret "overview" as an overview of that target only, not an organization-wide overview.
-- Only perform organization-wide or multi-account comparisons when the user explicitly asks for "all accounts", "org-wide", "compare accounts", or equivalent wording.
-- If the user names a Threads profile and asks for keyword discovery, use that exact Threads target for keyword search and keep any supporting analytics scoped to that same target.
-- If the user wants cross-platform analysis for one brand or creator identity, limit results to clearly matching same-brand profiles only. Do not infer brand grouping loosely from being in the same organization.
-- If same-brand matching is ambiguous, ask one short clarification question before proceeding.
-
-Target resolution priority:
+Resolve targets in this order:
 
 1. exact provider + exact handle/username match
 2. exact provider + exact display name match
 3. exact provider + clear unique partial match
 4. ask for clarification
 
-When a target is resolved, state it clearly before continuing, including:
-
-- provider
-- `socialProfileId` or `id`
-- `linkedAccountId` when relevant for Threads keyword discovery
+State the resolved provider and `id`/`socialProfileId` before continuing, plus `linkedAccountId` for Threads discovery.
 
 ## Analytics And Discovery
 
 Use `analytics:profile` only after resolving the target account through `accounts`.
 
-- If the user names a specific target, fetch analytics only for that target by default.
-- If the user asks for an "overview" and names a target, return an overview of that target only.
-- If the user asks for a cross-platform overview for one brand, include only clearly matching same-brand profiles.
-- If the user asks for organization-wide analytics, state that you are analyzing multiple accounts before proceeding.
+- Fetch only the resolved target by default. Include multiple profiles only for an explicit organization-wide comparison or clearly matched same-brand cross-platform request.
 - Compare only like-for-like profiles using the same time window.
 - Call out missing metrics instead of inferring them.
 - Do not compare unrelated accounts that happen to live in the same organization.
@@ -174,13 +140,6 @@ Threads keyword discovery rules:
 - `--search-type` is optional and must be `TOP` or `RECENT`
 - prefer `TOP` unless the user explicitly wants recency
 
-If a Threads target is named and the user asks for both analytics and keyword search:
-
-- resolve that Threads target first
-- fetch analytics for that target only
-- run keyword search using that same target's `linkedAccountId`
-- do not include other Threads accounts unless explicitly requested
-
 ## API Surface
 
 The helper script wraps these endpoints:
@@ -197,81 +156,26 @@ The helper script wraps these endpoints:
 
 ## Recommended Agent Workflow
 
-1. Determine scope first:
-   - named target account
-   - same-brand cross-platform overview
-   - organization-wide comparison
-2. Run `health` if you need to confirm which config source and `configPath` are active.
-3. Run `accounts` to resolve the exact target account unless the user already provided current Po Once IDs.
-4. State the resolved target before analysis:
-   - provider
-   - display name or handle
-   - `id` / `socialProfileId`
-   - `linkedAccountId` for Threads keyword discovery
-5. If the task is analysis:
-   - for a named target, fetch only that target's analytics by default
-   - for same-brand cross-platform analysis, include only clearly matching related profiles
-   - for organization-wide analysis, say explicitly that multiple accounts will be included
-6. If the task includes Threads keyword discovery:
-   - use the resolved Threads target's `linkedAccountId`
-   - do not switch to another Threads account in the same organization
-7. Draft conclusions that stay within the resolved scope.
-   - Do not cite unrelated connected accounts as context unless the user asked for comparison.
-8. If ambiguity remains after `accounts`, ask one short clarification question before proceeding.
-9. Draft content and confirm whether the user wants direct or scheduled posting.
+1. Run `health` when you need to confirm which config and `configPath` are active.
+2. Run `accounts` to resolve the target unless the user supplied current Po Once IDs; ask one short question if the match remains ambiguous.
+3. For analytics or discovery, follow the scope and provider rules above.
+4. Draft content and confirm whether the user wants direct or scheduled posting.
    - YouTube profiles only accept `video` posts — before calling `post` or `publish`, drop YouTube targets from `--accounts` for image/text content, or ask the user which they want.
-   - If the user wants a link in a Facebook, Instagram, or Threads post, put it in `--first-comment "..."` instead of the caption; it is posted as a comment right after publishing and avoids Meta's reach penalty for links in captions. Ignored for other platforms.
-10. Use `publish` for the normal end-to-end posting path. Add `--background` for large files and poll with `jobs:wait` (see Large Media Files). Never compress or re-encode media.
-11. Use `posts` or `posts:get --status-only` to confirm status.
-12. Only use `posts:delete` when the user explicitly wants a scheduled post removed.
-13. Before deleting, inspect the post first and confirm both `type === "scheduled"` and `status === "scheduled"`.
+5. Use `publish` for the normal end-to-end posting path. Add `--background` for large files and poll with `jobs:wait` (see Large Media Files).
+6. Use `posts` or `posts:get --status-only` to confirm status.
+7. Before an explicitly requested deletion, inspect the post and confirm both `type === "scheduled"` and `status === "scheduled"`.
 
 ## Safety Notes
 
 - Treat the API token like a password.
 - CLI output redacts common credential fields, but avoid sharing raw command output broadly unless needed.
-- Start with `accounts` before using profile analytics, Threads keyword search, or posting endpoints.
 - Prefer one explicit request per task instead of fetching every profile.
 - Use bounded analytics windows and confirm the returned response window before summarizing performance.
 - Prefer scheduled posting unless the user clearly wants immediate publishing.
 - Results are scoped to the organization tied to the token.
-- Do not broaden from a named target to other connected accounts without explicit user consent.
-- Organization membership does not imply analytical relevance.
-- `accounts` may return multiple brands, clients, or experiments; do not treat them as one analysis group by default.
-- If the user names one Threads profile, keep both analytics and keyword discovery tied to that exact target.
 - If the API returns `SUBSCRIPTION_REQUIRED`, stop and ask the user to upgrade the organization to an active Starter or Pro plan, or switch organizations.
 - If the API returns `STORAGE_LIMIT_EXCEEDED`, stop and ask the user to free storage or upgrade to Pro. Do not compress the file and retry.
 - If a YouTube profile is targeted with an image or text post, the API rejects it with the error `YouTube only supports video posts. Remove the YouTube profile or pick a video.` — resolve it by adjusting the targets (remove the YouTube profile or switch to video content), not by retrying the same request.
-- Only delete a post when both `type === "scheduled"` and `status === "scheduled"`.
 - Before calling `DELETE /api/agent/v1/posts/:id`, inspect the post first to confirm it is still scheduled and has not started processing.
 - Do not delete direct posts, published posts, failed posts, errored posts, posts already processing, or any post with another `type` or `status`.
 - If the post is not still `scheduled`/`scheduled`, do not call delete and tell the user that only scheduled posts that are still in `scheduled` status can be deleted.
-
-## Scope Examples
-
-Example: named Threads target
-
-- User: "Use the Threads profile `poonce_official` and check analytics, then do keyword search"
-- Correct behavior:
-  1. run `accounts`
-  2. resolve the Threads account for `poonce_official`
-  3. run `analytics:profile` only for that target
-  4. run `keyword-search` with that target's `linkedAccountId`
-- Incorrect behavior:
-  - fetching analytics for unrelated accounts in the organization
-  - using another Threads account's `linkedAccountId`
-
-Example: target overview
-
-- User: "Give me an overview for `poonce_official`"
-- Correct behavior: overview means that target only, not all connected accounts.
-
-Example: explicit org-wide comparison
-
-- User: "Compare analytics across all connected accounts"
-- Correct behavior: analyze multiple accounts and say explicitly that the result is organization-wide.
-
-Example: same-brand cross-platform
-
-- User: "Compare Threads and Instagram for `poonce_official`"
-- Correct behavior: include only the clearly matching `poonce_official` Threads and Instagram profiles, excluding unrelated brands or clients.
