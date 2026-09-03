@@ -31,7 +31,8 @@ Add `-g` to target a global install or `-p` for a project install.
 
 Re-running `npx skills add Stiffjobs/po-once-agent-skill` also works and
 overwrites the installed copy. The `last-updated` date in
-`skills/po-once/SKILL.md` shows which version you have.
+`skills/po-once/SKILL.md` shows which version you have. See `CHANGELOG.md`
+for what changed in each version.
 
 ## Quick Start
 

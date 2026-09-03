@@ -4,7 +4,7 @@ description: >
   Use Po Once's organization-scoped agent API to list connected accounts, upload
   media, create content, schedule or publish posts, inspect status, and delete
   eligible scheduled posts through a local helper script.
-last-updated: 2026-08-30
+last-updated: 2026-09-03
 allowed-tools: Bash(./scripts/po-once.cjs:*)
 ---
 
@@ -131,6 +131,13 @@ Use `analytics:profile` only after resolving the target account through `account
 - Do not combine `--period` with `--since` or `--until`
 - Do not send `--cursor` or `--max-count` for non-TikTok analytics requests
 - When no analytics window is provided for a Meta profile, the helper defaults to `--days 28`
+
+Meta response fields (`analytics` object; lifetime totals per post, period aggregates per account):
+
+- Instagram: `totals.{reach,followerCount,totalFollowers,likes,comments,shares,saves,accountsEngaged,totalInteractions}`, `timeSeries[].{date,reach,followerCount}`, `recentMedia[].{likeCount,commentsCount,insights.{views,reach,saved,shares,totalInteractions}}`. `totals.profileViews` and the other daily fields are always 0.
+- Facebook: `totals.{views,reach,profileViews,postEngagements,followers}`, `timeSeries[].{date,views,reach,profileViews,postEngagements}`, `recentPosts[].{likes,comments,shares,views,reach,videoViews,clicks,reactions}`. `reach` means unique content viewers. `insightsUnavailable` means Meta returned no page-level insights (Pages under 100 likes or a retired metric) and only posts loaded; `error` carries Meta's message.
+- Threads: `totals.{views,likes,replies,reposts,quotes,clicks,followersCount}`, `timeSeries[].{date,views}`, `recentPosts[].{views,likes,replies,reposts,quotes,shares}`. `totals.shares` and the other daily fields are always 0.
+- Post lists are the most recent 25 items regardless of the window.
 
 Threads keyword discovery rules:
 
