@@ -2,9 +2,10 @@
 name: po-once
 description: >
   Use Po Once's organization-scoped agent API to list connected accounts, upload
-  media, create content, schedule or publish posts, inspect status, and delete
-  eligible scheduled posts through a local helper script.
-last-updated: 2026-09-03
+  media, create content, schedule or publish posts, inspect status, read saved
+  keyword-monitor results, and delete eligible scheduled posts through a local
+  helper script.
+last-updated: 2026-09-11
 allowed-tools: Bash(./scripts/po-once.cjs:*)
 ---
 
@@ -63,6 +64,10 @@ PO_ONCE_CONFIG_PATH=/absolute/path/to/config.json ./scripts/po-once.cjs accounts
 | `./scripts/po-once.cjs analytics:profile --profile-id <social_profile_id> --days 28` | Fetch profile analytics; defaults to `days=28` for Meta profiles |
 | `./scripts/po-once.cjs analytics:profile --profile-id <social_profile_id> --cursor <cursor> --max-count 20` | Fetch TikTok analytics with TikTok-only pagination params |
 | `./scripts/po-once.cjs keyword-search --linked-account-id <threads_linked_account_id> --keyword "launch tips" --search-type RECENT` | Run ad-hoc Threads keyword discovery |
+| `./scripts/po-once.cjs keyword-monitors --limit 20` | List saved Threads keyword monitors (add `--active` for active ones only) |
+| `./scripts/po-once.cjs keyword-monitors --active --limit 20 --cursor <cursor>` | Continue listing active monitors with the previous page’s `nextCursor` |
+| `./scripts/po-once.cjs keyword-matches --limit 20 --status pending` | List posts already found by keyword monitors, newest first |
+| `./scripts/po-once.cjs keyword-matches --monitor-id <monitor_id> --post-age-hours 24 --cursor <cursor>` | Filter matches to one monitor and recent posts; page with `--cursor` |
 | `./scripts/po-once.cjs upload --file ./clip.mp4` | Upload media (streams from disk; any size the target platform accepts) |
 | `./scripts/po-once.cjs upload --file ./clip.mp4 --background` | Start the upload as a detached background job and return a `jobId` immediately |
 | `./scripts/po-once.cjs content:create --caption "..." --post-type video --storage-key <key> --size-bytes 1234` | Create content |
@@ -147,6 +152,18 @@ Threads keyword discovery rules:
 - `--search-type` is optional and must be `TOP` or `RECENT`
 - prefer `TOP` unless the user explicitly wants recency
 
+Keyword monitor results rules:
+
+- A keyword monitor is a saved keyword that Po Once searches on Threads on a schedule. Monitors are created and edited in the Po Once web app; the API and this skill only read them.
+- Use `keyword-monitors` to see which keywords are tracked, whether each is active, `lastSearchedAt`, and running `totalMatches` / `totalReplies`. `autoReplyEnabled` is currently always `false`; replies require an explicit user action. Reply templates do not enable automatic replies and are never returned.
+- Use `keyword-matches` to retrieve the posts those monitors already found. Prefer it over `keyword-search` when the user asks what the monitors have picked up, what is new, or what still needs a reply. Use `keyword-search` only for a fresh ad-hoc query.
+- Each match carries `keyword`, `monitorId`, `postText`, `postAuthor`, `postPermalink`, `postTimestamp`, `matchedAt`, and `status`. `status` is `pending` (found, no reply yet), `replied` (Po Once replied; `replyId` and `repliedAt` are set), `failed` (`errorMessage` explains), or `skipped` (`skipReason` explains).
+- Both commands return `{ monitors, nextCursor, isDone }` or `{ matches, nextCursor, isDone }`. Start with `--limit 20` (maximum 100). Pass a non-null `nextCursor` as `--cursor` with the same filters for subsequent pages. An empty filtered page can still have a next page; continue when needed to answer the request. Do not fetch every page unless the user asks for all results or a full export.
+- Matches are ordered newest-discovered first, not by original post publication time. `--post-age-hours` filters by original post publication time and must be a positive integer.
+- `keyword-monitors --active` or `--active true` includes only active monitors; omitted or `--active false` includes both active and inactive monitors.
+- Use `--monitor-id` with an `id` from `keyword-monitors` to scope to one keyword; use `--status pending` to find posts that still need attention; use `--post-age-hours` to limit to recent posts.
+- Report the match counts and statuses that come back. Do not infer engagement or reply outcomes that are not in the response.
+
 ## API Surface
 
 The helper script wraps these endpoints:
@@ -154,6 +171,8 @@ The helper script wraps these endpoints:
 - `GET /api/agent/v1/accounts`
 - `GET /api/agent/v1/analytics/profiles/:profileId`
 - `POST /api/agent/v1/keyword-search`
+- `GET /api/agent/v1/keyword-monitors`
+- `GET /api/agent/v1/keyword-matches`
 - `POST /api/agent/v1/media/create-upload-url`
 - `POST /api/agent/v1/contents`
 - `GET /api/agent/v1/posts`
@@ -165,7 +184,7 @@ The helper script wraps these endpoints:
 
 1. Run `health` when you need to confirm which config and `configPath` are active.
 2. Run `accounts` to resolve the target unless the user supplied current Po Once IDs; ask one short question if the match remains ambiguous.
-3. For analytics or discovery, follow the scope and provider rules above.
+3. For analytics or discovery, follow the scope and provider rules above. For saved keyword monitors, run `keyword-monitors` first, then `keyword-matches` with the monitor `id` and a status filter when the user asks about tracked keywords or pending replies.
 4. Draft content and confirm whether the user wants direct or scheduled posting.
    - YouTube profiles only accept `video` posts — before calling `post` or `publish`, drop YouTube targets from `--accounts` for image/text content, or ask the user which they want.
 5. Use `publish` for the normal end-to-end posting path. Add `--background` for large files and poll with `jobs:wait` (see Large Media Files).

@@ -3,6 +3,31 @@
 Versions are identified by the `last-updated` date in `skills/po-once/SKILL.md`.
 Run `npx skills update po-once` to get the latest.
 
+## 2026-09-11
+
+- Added `--limit` and `--cursor` to `keyword-monitors`; both monitoring commands
+  validate positive integer limits and required option values before requests.
+- Documented active filtering, response envelopes, newest-discovered ordering,
+  and continuing through empty filtered pages with the same filters.
+- Corrected `autoReplyEnabled`: it is always false; templates do not enable
+  automatic replies.
+- Added isolated CLI tests for monitoring requests, pagination, invalid filters,
+  and API errors. The helper retains its production-only configuration.
+
+## 2026-09-10
+
+- Added `keyword-monitors` to list the organization's saved Threads keyword
+  monitors (`--active` for active ones only). Read-only; monitors are still
+  created and edited in the Po Once web app.
+- Added `keyword-matches` to retrieve the posts those monitors already found,
+  newest first, with `--monitor-id`, `--status`, `--post-age-hours`, `--limit`,
+  and `--cursor` filters.
+- Documented when to use `keyword-matches` (tracked keywords, pending replies)
+  versus `keyword-search` (fresh ad-hoc queries), and the meaning of each
+  match `status`.
+- Backed by two new endpoints: `GET /api/agent/v1/keyword-monitors` and
+  `GET /api/agent/v1/keyword-matches`.
+
 ## 2026-09-03
 
 - Documented the Meta analytics response shape returned by `analytics:profile`

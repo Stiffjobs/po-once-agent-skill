@@ -42,6 +42,7 @@ const JOB_WAIT_POLL_MS = 2000;
 let activeJob = null;
 const META_ANALYTICS_PROVIDERS = new Set(['facebook', 'instagram', 'threads']);
 const THREADS_PROVIDER = 'threads';
+const KEYWORD_MATCH_STATUSES = new Set(['pending', 'replied', 'failed', 'skipped']);
 const TIKTOK_PROVIDER = 'tiktok';
 
 function readJson(filePath) {
@@ -423,6 +424,31 @@ function parseInteger(value, fieldName) {
     throw new Error(`Field "${fieldName}" must be a valid number.`);
   }
   return number;
+}
+
+function keywordStringOption(value, fieldName) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`Missing value for --${fieldName}.`);
+  }
+  return value;
+}
+
+function keywordPositiveInteger(value, fieldName) {
+  const text = keywordStringOption(value, fieldName);
+  const number = Number(text);
+  if (!/^\d+$/.test(text) || !Number.isSafeInteger(number) || number < 1) {
+    throw new Error(`Field "${fieldName}" must be a positive integer.`);
+  }
+  return number;
+}
+
+function setKeywordPagination(searchParams, parsed) {
+  if (parsed.limit !== undefined) {
+    searchParams.set('limit', String(Math.min(100, keywordPositiveInteger(parsed.limit, 'limit'))));
+  }
+  if (parsed.cursor !== undefined) {
+    searchParams.set('cursor', keywordStringOption(parsed.cursor, 'cursor'));
+  }
 }
 
 function parseBoolean(value, fieldName) {
@@ -1085,6 +1111,34 @@ const COMMANDS = {
 
     output(await request('POST', '/api/agent/v1/keyword-search', payload));
   },
+  'keyword-monitors': async (args) => {
+    const parsed = parseArgs(args);
+    const searchParams = new URLSearchParams();
+    if (parsed.active !== undefined) searchParams.set('active', String(parseBoolean(parsed.active, 'active')));
+    setKeywordPagination(searchParams, parsed);
+    const suffix = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    output(await request('GET', `/api/agent/v1/keyword-monitors${suffix}`));
+  },
+  'keyword-matches': async (args) => {
+    const parsed = parseArgs(args);
+    const searchParams = new URLSearchParams();
+    if (parsed['monitor-id'] !== undefined) {
+      searchParams.set('monitorId', keywordStringOption(parsed['monitor-id'], 'monitor-id'));
+    }
+    if (parsed.status !== undefined) {
+      const status = String(parsed.status).trim().toLowerCase();
+      if (!KEYWORD_MATCH_STATUSES.has(status)) {
+        throw new Error(`Field "status" must be one of ${Array.from(KEYWORD_MATCH_STATUSES).join(', ')}.`);
+      }
+      searchParams.set('status', status);
+    }
+    setKeywordPagination(searchParams, parsed);
+    if (parsed['post-age-hours'] !== undefined) {
+      searchParams.set('postAgeHours', String(keywordPositiveInteger(parsed['post-age-hours'], 'post-age-hours')));
+    }
+    const suffix = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    output(await request('GET', `/api/agent/v1/keyword-matches${suffix}`));
+  },
   upload: async (args) => {
     const parsed = parseArgs(args);
     if (!parsed.file) throw new Error(`Usage: ${usage('upload --file ./clip.mp4')}`);
@@ -1248,6 +1302,35 @@ const COMMANDS = {
         notes: [
           '--search-type defaults to TOP.',
           'Only Threads linked accounts are valid for keyword search.',
+        ],
+      },
+      'keyword-monitors': {
+        summary: 'List the organization\'s saved Threads keyword monitors (the keywords Po Once searches on a schedule).',
+        usage: [
+          `${usage('keyword-monitors')}`,
+          `${usage('keyword-monitors --active --limit 20')}`,
+          `${usage('keyword-monitors --active --limit 20 --cursor <cursor>')}`,
+        ],
+        notes: [
+          'Read-only. Monitors are created and edited in the Po Once web app.',
+          'Use the returned id as --monitor-id for keyword-matches.',
+          '--active or --active true returns active monitors; omitted or --active false includes all.',
+          'Page size defaults to 20 and is capped at 100. Keep filters when following nextCursor until null.',
+          'autoReplyEnabled is always false; templates do not enable automatic replies.',
+        ],
+      },
+      'keyword-matches': {
+        summary: 'List posts that saved keyword monitors have already found, newest-discovered first, with cursor pagination.',
+        usage: [
+          `${usage('keyword-matches --limit 20')}`,
+          `${usage('keyword-matches --monitor-id <monitor_id> --status pending --post-age-hours 24')}`,
+          `${usage('keyword-matches --cursor <cursor>')}`,
+        ],
+        notes: [
+          '--status must be one of pending, replied, failed, or skipped.',
+          '--post-age-hours is a positive integer and filters by original post publication time, not discovery time.',
+          '--limit is a positive integer, defaults to 20, and is capped at 100.',
+          'Pass nextCursor as --cursor with the same filters, even when matches is empty; stop when nextCursor is null.',
         ],
       },
     },
