@@ -3,6 +3,14 @@
 Versions are identified by the `last-updated` date in `skills/po-once/SKILL.md`.
 Run `npx skills update po-once` to get the latest.
 
+## 2026-09-16
+
+- Documented the hosted MCP server at `https://po-once.com/mcp` as an
+  alternative to the helper script: browser OAuth sign-in per organization, the
+  eleven hosted tool names, and API-key bearer support.
+- Noted that hosted MCP cannot read local files and that `create_posts` rejects
+  a past `scheduledTime`; listed when the script remains the better fit.
+
 ## 2026-09-11
 
 - Added `--limit` and `--cursor` to `keyword-monitors`; both monitoring commands

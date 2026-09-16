@@ -5,7 +5,7 @@ description: >
   media, create content, schedule or publish posts, inspect status, read saved
   keyword-monitor results, and delete eligible scheduled posts through a local
   helper script.
-last-updated: 2026-09-11
+last-updated: 2026-09-16
 allowed-tools: Bash(./scripts/po-once.cjs:*)
 ---
 
@@ -50,6 +50,29 @@ PO_ONCE_CONFIG_PATH=/absolute/path/to/config.json ./scripts/po-once.cjs accounts
 ```
 
 **Note for agents**: All script paths in this document are relative to the directory where this `SKILL.md` is installed. For example, `./scripts/po-once.cjs` refers to the script bundled with this skill, not a repository-root `./scripts/po-once.cjs`. Resolve paths from the installed skill directory.
+
+## Hosted MCP
+
+Po Once also serves a remote MCP server at `https://po-once.com/mcp`. AI clients
+that support remote HTTP MCP servers (Claude Code, Claude Desktop, Cursor, Codex)
+can add that URL and sign in through the browser instead of running this script.
+The user picks an organization on the consent page; owner or admin role and a
+plan with Agent API access are required. An organization API key also works as
+`Authorization: Bearer po_live_org_<secret>` where the client supports static
+headers.
+
+Hosted tools mirror the API surface below: `list_accounts`,
+`get_profile_analytics`, `search_keywords`, `list_keyword_monitors`,
+`list_keyword_matches`, `create_media_upload_url`, `create_content`,
+`list_posts`, `get_post`, `create_posts`, and `cancel_scheduled_post`.
+
+- Hosted MCP cannot read files on the user's computer. `create_media_upload_url`
+  returns a presigned PUT URL; upload the binary yourself, then pass the returned
+  storage key to `create_content`.
+- `create_posts` in `scheduled` mode requires a future `scheduledTime` (Unix
+  milliseconds). Past values are rejected; use `direct` mode to publish now.
+- Prefer this script when the flow needs local file uploads through `publish`,
+  background jobs, or a non-interactive CI setup with an API key.
 
 ## Commands
 
