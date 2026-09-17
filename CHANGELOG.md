@@ -13,9 +13,15 @@ Run `npx skills update po-once` to get the latest.
 - Post and comment ids are Meta platform ids; the helper rejects URLs and
   Po Once post ids before making a request. `--limit` (max 100) and `--cursor`
   follow the same rules as the monitoring commands.
-- Documented the response envelope, null semantics (`replyCount`, Instagram
-  `permalink`), coverage reporting, untrusted-content handling, and the
-  reconnect / provider-rate-limit error codes.
+- `comments` returns replies in the same page: Threads (newest first) and
+  Facebook (chronological) return every comment at any depth flattened, and
+  Instagram includes replies as well (at most 50 per comment).
+  `parentCommentId` links each reply to its parent.
+- Each comment now carries `hasReplies` and `isFromProfile` so an agent can
+  find comments that still need a human reply without a call per comment.
+- Documented the response envelope, null semantics (`replyCount`,
+  `hasReplies`, Instagram `permalink`), coverage reporting, untrusted-content
+  handling, and the reconnect / provider-rate-limit error codes.
 - Listed the three hosted MCP tools (`list_comment_posts`, `get_post_comments`,
   `get_comment_replies`) and the `comments:read` scope they require.
 - Added isolated CLI tests for both commands.
