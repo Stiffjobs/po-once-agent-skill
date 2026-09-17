@@ -3,6 +3,23 @@
 Versions are identified by the `last-updated` date in `skills/po-once/SKILL.md`.
 Run `npx skills update po-once` to get the latest.
 
+## 2026-09-17
+
+- Added `comments:posts` to discover posts on a connected Instagram, Facebook
+  Page, or Threads profile, including posts published outside Po Once, and
+  `comments` to read one page of top-level comments on a post or, with
+  `--comment-id`, the direct replies to one comment. Read-only; nothing is
+  sent, moderated, or read from DMs.
+- Post and comment ids are Meta platform ids; the helper rejects URLs and
+  Po Once post ids before making a request. `--limit` (max 100) and `--cursor`
+  follow the same rules as the monitoring commands.
+- Documented the response envelope, null semantics (`replyCount`, Instagram
+  `permalink`), coverage reporting, untrusted-content handling, and the
+  reconnect / provider-rate-limit error codes.
+- Listed the three hosted MCP tools (`list_comment_posts`, `get_post_comments`,
+  `get_comment_replies`) and the `comments:read` scope they require.
+- Added isolated CLI tests for both commands.
+
 ## 2026-09-16
 
 - Documented the hosted MCP server at `https://po-once.com/mcp` as an
