@@ -3,6 +3,14 @@
 Versions are identified by the `last-updated` date in `skills/po-once/SKILL.md`.
 Run `npx skills update po-once` to get the latest.
 
+## 2026-09-22
+
+- Hosted MCP: documented `media_open_upload`, the in-chat uploader for MCP Apps
+  clients. It appears only when Po Once is added as a connector in Claude
+  Desktop or claude.ai, never through an MCP config file or a CLI. It collects
+  a caption and title and creates the content itself, so agents must not call
+  `create_content` again for media it attached.
+
 ## 2026-09-17
 
 - Added `comments:posts` to discover posts on a connected Instagram, Facebook

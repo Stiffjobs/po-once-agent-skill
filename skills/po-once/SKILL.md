@@ -5,7 +5,7 @@ description: >
   media, create content, schedule or publish posts, inspect status, read saved
   keyword-monitor results, read Meta post comments and replies, and delete
   eligible scheduled posts through a local helper script.
-last-updated: 2026-09-17
+last-updated: 2026-09-22
 allowed-tools: Bash(./scripts/po-once.cjs:*)
 ---
 
@@ -67,11 +67,19 @@ Hosted tools mirror the API surface below: `list_accounts`,
 `list_keyword_matches`, `create_media_upload_url`, `create_content`,
 `list_posts`, `get_post`, `create_posts`, and `cancel_scheduled_post`. The
 three comment tools need the `comments:read` scope; connections approved
-before 2026-09-17 must re-authorize to see them.
+before 2026-09-17 must re-authorize to see them. `media_open_upload` adds an
+in-chat uploader for MCP Apps clients.
 
-- Hosted MCP cannot read files on the user's computer. `create_media_upload_url`
-  returns a presigned PUT URL; upload the binary yourself, then pass the returned
-  storage key to `create_content`.
+- The in-chat uploader (`media_open_upload`) renders only when the user added
+  Po Once as a **connector** in Claude Desktop or claude.ai (Settings →
+  Connectors → Add custom connector). If a user asks why no uploader appears,
+  check how they added the server: an MCP config file or CLI registration
+  (including Claude Code, Cursor, Codex) never shows it. The uploader picks
+  files from the user's device, takes a caption and title, and creates the
+  content itself; do not call `create_content` again for media it attached.
+- Everywhere else, hosted MCP cannot read files on the user's computer.
+  `create_media_upload_url` returns a presigned PUT URL; upload the binary
+  yourself, then pass the returned storage key to `create_content`.
 - `create_posts` in `scheduled` mode requires a future `scheduledTime` (Unix
   milliseconds). Past values are rejected; use `direct` mode to publish now.
 - Prefer this script when the flow needs local file uploads through `publish`,
