@@ -37,6 +37,8 @@ Run `npx skills update po-once` to get the latest.
 - Hosted MCP: the in-chat uploader is no longer described as Claude-only. It
   renders in any client that displays MCP Apps UI with Po Once added as an app
   or connector.
+- `contents:update --profile-hint` must be the exact workspace name; any other
+  value is rejected and nothing changes.
 - Added isolated CLI tests for the new commands.
 
 ## 2026-09-22

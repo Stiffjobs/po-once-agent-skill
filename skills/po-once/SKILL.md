@@ -129,7 +129,7 @@ Apps clients.
 | `./scripts/po-once.cjs content:create --caption "..." --post-type video --storage-key <key> --size-bytes 1234` | Create content |
 | `./scripts/po-once.cjs contents --limit 20 --search "launch"` | List saved content, newest first (`--post-type image\|video\|text`, `--limit` max 100, `--cursor`; `--search` orders by relevance) |
 | `./scripts/po-once.cjs contents:get --id <content_id>` | Get one saved content with its media items and the posts made from it |
-| `./scripts/po-once.cjs contents:update --id <content_id> --caption "..."` | Edit saved content's caption (`--title`, `--clear-title` to regenerate it, `--profile-hint`); media cannot change |
+| `./scripts/po-once.cjs contents:update --id <content_id> --caption "..."` | Edit saved content's caption (`--title`, `--clear-title` to regenerate it, `--profile-hint` with the exact workspace name); media cannot change |
 | `./scripts/po-once.cjs contents:delete --id <content_id>` | Permanently delete saved content, its media, and its posts' Po Once records; refused while posts are scheduled or publishing |
 | `./scripts/po-once.cjs post --content-id <id> --accounts social_profile_id_1,social_profile_id_2 --mode scheduled --schedule 2026-04-17T09:00:00Z --timezone UTC` | Create post batch; `--accounts` must be comma-separated `id` or `socialProfileId` values returned by `accounts` |
 | `./scripts/po-once.cjs publish --file ./clip.mp4 --caption "..." --accounts social_profile_id_1,social_profile_id_2 --mode direct` | Upload, create content, and create post; `--accounts` must be comma-separated `id` or `socialProfileId` values returned by `accounts` |
@@ -265,7 +265,7 @@ Keyword monitor results rules:
 
 ## Editing Or Deleting Saved Content
 
-- `contents:update` (`PATCH /api/agent/v1/contents/:id`) changes the saved content itself: `--caption` (non-empty), `--title` (`--clear-title` empties it and Po Once generates a new one from the caption), and `--profile-hint`. Omitted fields stay unchanged; media cannot be changed (create new content instead). It returns the content in the `contents:get` shape.
+- `contents:update` (`PATCH /api/agent/v1/contents/:id`) changes the saved content itself: `--caption` (non-empty), `--title` (`--clear-title` empties it and Po Once generates a new one from the caption), and `--profile-hint`, which must be the exact workspace name (anything else is rejected with `400` and nothing changes). Omitted fields stay unchanged; media cannot be changed (create new content instead). It returns the content in the `contents:get` shape.
 - A new caption reaches every scheduled post of that content without its own caption override; published posts are not changed. To change one post only, use `posts:update --caption-override` instead. Show the user the new text and which scheduled posts it affects, and get confirmation first.
 - `contents:delete` (`DELETE /api/agent/v1/contents/:id`) permanently deletes the content, its media files, and the Po Once records of its posts, and returns `{ deletedContentId, deletedPostRecords, freedBytes, note }`. Posts already published stay on the social networks. Name the content (title, caption start, post count) and get an explicit yes before running it; it cannot be undone.
 - While any post of the content is pending, scheduled, or publishing, delete returns `409 CONTENT_HAS_ACTIVE_POSTS` and the message lists the post ids. Cancel scheduled ones with `posts:delete` only if the user wants them gone, wait for publishing ones to finish, then retry.
