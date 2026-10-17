@@ -273,7 +273,7 @@ Keyword monitor results rules:
 ## Plan Usage
 
 - `usage` returns `{ plan, period: { month, resetsAt }, monthlyPosts, storage, connectedAccounts, monthlyUploads }`. Each quota has `used`, `limit`, `remaining`, `unlimited`, and `status` (`ok`, `near_limit`, `over_limit`); `limit` and `remaining` are `null` when `unlimited` is true. `storage` is in bytes; `storage.reserved` is held by uploads in progress and `remaining` already subtracts it. Monthly counters reset at `period.resetsAt` (Unix ms, start of the next UTC month).
-- Run `usage` before scheduling many posts or uploading large media. If `remaining` is lower than what the user asked for, say so before starting instead of failing halfway on a post limit error or `STORAGE_LIMIT_EXCEEDED`.
+- Run `usage` before scheduling many posts or uploading large media. If `remaining` is lower than what the user asked for, say so before starting instead of failing halfway on `POST_LIMIT_EXCEEDED` or `STORAGE_LIMIT_EXCEEDED`.
 
 ## Editing A Scheduled Post
 
@@ -339,7 +339,7 @@ The helper script wraps these endpoints:
 - Replies are public and posted as the user's account. Never run `comments:reply` without the user's explicit confirmation of the exact text.
 - Never run `contents:update` or `contents:delete` without the user's explicit confirmation of that content and change. `contents:delete` cannot be undone.
 - If the API returns `SUBSCRIPTION_REQUIRED`, stop and ask the user to upgrade the organization to an active Starter or Pro plan, or switch organizations.
-- If `post` fails with `POST_LIMIT_EXCEEDED` in the error, stop: the organization reached its monthly post limit. Ask the user to upgrade the plan or wait for next month; do not retry.
+- If `post` returns `402 POST_LIMIT_EXCEEDED`, stop: the organization reached its monthly post limit. Ask the user to upgrade the plan or wait until `usage` shows `period.resetsAt`; do not retry.
 - If the API returns `STORAGE_LIMIT_EXCEEDED`, stop and ask the user to free storage or upgrade to Pro. Do not compress the file and retry.
 - If a YouTube profile is targeted with an image or text post, the API rejects it with the error `YouTube only supports video posts. Remove the YouTube profile or pick a video.` — resolve it by adjusting the targets (remove the YouTube profile or switch to video content), not by retrying the same request.
 - Before calling `DELETE /api/agent/v1/posts/:id`, inspect the post first to confirm it is still scheduled and has not started processing.

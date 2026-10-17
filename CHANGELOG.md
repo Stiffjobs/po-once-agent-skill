@@ -39,6 +39,8 @@ Run `npx skills update po-once` to get the latest.
   or connector.
 - `contents:update --profile-hint` must be the exact workspace name; any other
   value is rejected and nothing changes.
+- `post` at the monthly post limit now fails with `402 POST_LIMIT_EXCEEDED`
+  (it was a generic 500 whose message held that code).
 - Added isolated CLI tests for the new commands.
 
 ## 2026-09-22
