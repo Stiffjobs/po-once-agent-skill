@@ -57,6 +57,26 @@ for what changed in each version.
 `./skills/po-once/scripts/po-once.cjs accounts`; the helper sends them as
 `socialProfileIds`.
 
+To reuse content already saved in Po Once, find it and schedule it after the
+user confirms the accounts, caption, and time:
+
+```bash
+./skills/po-once/scripts/po-once.cjs contents --search "product announcement"
+./skills/po-once/scripts/po-once.cjs post \
+  --content-id <content_id> \
+  --accounts social_profile_id_1,social_profile_id_2 \
+  --mode scheduled \
+  --schedule 2026-04-17T09:00:00Z \
+  --timezone Asia/Taipei
+```
+
+To see what is scheduled next week, or how much of the plan is left:
+
+```bash
+./skills/po-once/scripts/po-once.cjs posts --from 2026-11-02T00:00:00+08:00 --to 2026-11-09T00:00:00+08:00 --status scheduled
+./skills/po-once/scripts/po-once.cjs usage
+```
+
 ## Large Files
 
 The helper streams media from disk, so file size is limited only by the

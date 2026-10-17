@@ -3,6 +3,42 @@
 Versions are identified by the `last-updated` date in `skills/po-once/SKILL.md`.
 Run `npx skills update po-once` to get the latest.
 
+## 2026-10-17
+
+- Added `contents` to list the organization's saved content (caption search
+  with `--search`, `--post-type`, `--limit` max 100, `--cursor`) and
+  `contents:get` to read one content with its media and the posts made from
+  it. Use them to reuse content already in Po Once instead of uploading again.
+- Added `contents:update` to edit saved content's caption, title
+  (`--clear-title` lets Po Once generate a new one), and profile hint. A new
+  caption reaches every scheduled post of that content without its own caption
+  override. Media cannot change.
+- Added `contents:delete` to delete saved content, its media, and the Po Once
+  records of its posts. It is refused with `409 CONTENT_HAS_ACTIVE_POSTS` while
+  any post is scheduled or publishing; published posts stay on the networks.
+- `posts` takes `--from` and `--to` (ISO or Unix ms, at most 93 days) to list
+  posts scheduled in a window, earliest first.
+- Added `usage`: plan, posts this month, storage (with bytes reserved by
+  uploads in progress), and connected accounts against their limits.
+- Added `analytics:post` (live metrics of one Po Once post),
+  `analytics:profile-posts` (a profile's recent platform posts with metrics,
+  paginated; Instagram, Facebook, Threads, TikTok), and
+  `analytics:demographics` (follower age, gender, cities, countries; Instagram
+  and Threads). `analytics:profile` now supports YouTube (`--days` 7, 30, 90).
+- `analytics:profile-posts` reports a platform failure as an error
+  (`ANALYTICS_PROVIDER_RATE_LIMITED`, `ANALYTICS_RECONNECT_REQUIRED`, ...)
+  instead of an empty page.
+- Hosted MCP: the tool list now includes `list_workspaces`,
+  `create_account_connect_link`, `get_usage`, `get_post_analytics`,
+  `list_profile_post_metrics`, `get_audience_demographics`, `list_contents`,
+  `get_content`, `update_content`, and `delete_content`. A connection only lists
+  the tools its approved permissions allow; `delete_content` needs the new
+  `contents:delete` permission, so existing connections must reconnect for it.
+- Hosted MCP: the in-chat uploader is no longer described as Claude-only. It
+  renders in any client that displays MCP Apps UI with Po Once added as an app
+  or connector.
+- Added isolated CLI tests for the new commands.
+
 ## 2026-09-22
 
 - Hosted MCP: documented `media_open_upload`, the in-chat uploader for MCP Apps
