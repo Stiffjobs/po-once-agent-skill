@@ -3,6 +3,15 @@
 Versions are identified by the `last-updated` date in `skills/po-once/SKILL.md`.
 Run `npx skills update po-once` to get the latest.
 
+## 2026-10-19
+
+- Telegram channels and groups can be posting targets. They take text (up to
+  4096 characters), or up to 10 photos and videos with a caption of at most
+  1024 characters. Posts over these limits are rejected when they are created
+  or edited. Telegram has no analytics, comments, or first comment.
+- Connect links (`create_account_connect_link` in MCP) accept `telegram`; the
+  link page shows a code to post in the channel or group.
+
 ## 2026-10-17
 
 - Added `contents` to list the organization's saved content (caption search
