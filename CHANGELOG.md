@@ -9,8 +9,9 @@ Run `npx skills update po-once` to get the latest.
   4096 characters), or up to 10 photos and videos with a caption of at most
   1024 characters. Posts over these limits are rejected when they are created
   or edited. Telegram has no analytics, comments, or first comment.
-- Connect links (`create_account_connect_link` in MCP) accept `telegram`; the
-  link page shows a code to post in the channel or group.
+- Connect links (`create_account_connect_link` in MCP) accept `telegram`. The
+  link page walks the owner through adding the Po Once bot: a group connects
+  once the bot is added, and a channel is picked in a private chat with the bot.
 
 ## 2026-10-17
 
