@@ -7,7 +7,7 @@ description: >
   comments and replies, reply to comments after the user confirms, edit or
   delete eligible scheduled posts and saved content, read post and audience
   analytics, and check plan usage through a local helper script.
-last-updated: 2026-10-19
+last-updated: 2026-10-21
 allowed-tools: Bash(./scripts/po-once.cjs:*)
 ---
 
@@ -321,6 +321,7 @@ The helper script wraps these endpoints:
 6. Confirm whether the user wants direct or scheduled posting, the target accounts, and for scheduled posts the local time and timezone. Before bulk scheduling or large uploads, run `usage` and check `monthlyPosts.remaining` and `storage.remaining`.
    - YouTube profiles only accept `video` posts — before calling `post` or `publish`, drop YouTube targets from `--accounts` for image/text content, or ask the user which they want.
    - Telegram profiles (channels and groups) take text, image, or video posts: text up to 4096 characters; with media, at most 10 items and a caption of at most 1024 characters. Longer captions or more items are rejected when the post is created, so shorten the caption (a caption override works) or drop the Telegram target; `posts:update` rejects a caption override over the limit with `400 INVALID_ARGUMENT`. Telegram posts have no analytics, comments, or first comment.
+   - LINE profiles are LINE Official Accounts. A post is a broadcast to every friend of the account, and each friend who receives it uses one message from the account's monthly LINE allowance (billed by LINE, not Po Once), so confirm before broadcasting to a large audience. They take text up to 5000 characters, JPEG or PNG photos up to 10 MB and MP4 videos up to 200 MB, at most 5 messages per post (each photo or video is one, the caption is one more). Over-limit posts are rejected when created or edited; an unsupported file type or a used-up allowance fails at publish time with the reason. LINE posts have no analytics, comments, or first comment.
 7. Show the user the content, accounts, caption overrides, and local time, wait for confirmation, then run `post`.
 8. `publish` (upload, create content, and post in one step) remains available when the user already approved the exact caption, accounts, and timing. Add `--background` for large files and poll with `jobs:wait` (see Large Media Files).
 9. Use `posts` or `posts:get --status-only` to confirm status. For "what is scheduled this week?", use `posts --from <start> --to <end> --status scheduled` with day boundaries in the user's timezone.

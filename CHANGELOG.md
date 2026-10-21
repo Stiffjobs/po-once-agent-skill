@@ -3,6 +3,18 @@
 Versions are identified by the `last-updated` date in `skills/po-once/SKILL.md`.
 Run `npx skills update po-once` to get the latest.
 
+## 2026-10-21
+
+- LINE Official Accounts can be posting targets. A post is a broadcast to
+  every friend of the account, and each friend reached uses one message from
+  the account's monthly LINE allowance. LINE takes text (up to 5000
+  characters), JPEG or PNG photos and MP4 videos, at most 5 messages per post
+  (each photo or video is one, the caption one more). LINE has no analytics,
+  comments, or first comment.
+- Connect links (`create_account_connect_link` in MCP) accept `line`. The link
+  page asks the owner for the Messaging API channel ID and secret; Po Once
+  stores the secret encrypted and the workspace cannot see it.
+
 ## 2026-10-19
 
 - Telegram channels and groups can be posting targets. They take text (up to
