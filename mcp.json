@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "po-once": {
+      "type": "http",
+      "url": "https://po-once.com/mcp"
+    }
+  }
+}

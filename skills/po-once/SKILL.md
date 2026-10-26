@@ -1,12 +1,6 @@
 ---
 name: po-once
-description: >
-  Use Po Once's organization-scoped agent API to list connected accounts, upload
-  media, create or find saved content, schedule or publish posts, inspect
-  status, read saved keyword-monitor results, read Meta post
-  comments and replies, reply to comments after the user confirms, edit or
-  delete eligible scheduled posts and saved content, read post and audience
-  analytics, and check plan usage through a local helper script.
+description: "Schedule and publish social posts, manage saved content and media, read analytics, comments, and keyword monitors, and reply to comments through Po Once's agent API (local helper script or hosted MCP at https://po-once.com/mcp)."
 last-updated: 2026-10-21
 allowed-tools: Bash(./scripts/po-once.cjs:*)
 ---
