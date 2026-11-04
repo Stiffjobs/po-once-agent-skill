@@ -1259,9 +1259,11 @@ const COMMANDS = {
         ? [{ storageKey: parsed['storage-key'], ...(parsed['size-bytes'] !== undefined ? { sizeBytes: parseInteger(parsed['size-bytes'], 'size-bytes') } : {}) }]
         : [];
     const postType = parsed['post-type'] || (mediaItems.length > 0 ? 'image' : 'text');
+    if (parsed.link === true) throw new Error('Flag --link needs a value.');
     output(await request('POST', '/api/agent/v1/contents', {
       title: parsed.title,
       caption: parsed.caption,
+      link: parsed.link,
       postType,
       mediaItems,
       isAI: parseBoolean(parsed['is-ai'], 'is-ai'),
@@ -1300,7 +1302,7 @@ const COMMANDS = {
   'contents:update': async (args) => {
     const parsed = parseArgs(args);
     if (!parsed.id || parsed.id === true) {
-      throw new Error(`Usage: ${usage('contents:update --id <content_id> [--caption "..."] [--title "..." | --clear-title] [--profile-hint "..."]')}`);
+      throw new Error(`Usage: ${usage('contents:update --id <content_id> [--caption "..."] [--title "..." | --clear-title] [--link <url> | --clear-link] [--profile-hint "..."]')}`);
     }
     const stringFlag = (name) => {
       if (parsed[name] === undefined) return undefined;
@@ -1310,16 +1312,20 @@ const COMMANDS = {
     if (parsed.title !== undefined && parsed['clear-title']) {
       throw new Error('Use either --title or --clear-title, not both.');
     }
+    if (parsed.link !== undefined && parsed['clear-link']) {
+      throw new Error('Use either --link or --clear-link, not both.');
+    }
     const body = pickDefinedFields({
       caption: stringFlag('caption'),
       title: parsed['clear-title'] ? '' : stringFlag('title'),
+      link: parsed['clear-link'] ? '' : stringFlag('link'),
       profileHint: stringFlag('profile-hint'),
     });
     if (body.caption !== undefined && !body.caption.trim()) {
       throw new Error('Field "caption" cannot be empty.');
     }
     if (Object.keys(body).length === 0) {
-      throw new Error('Nothing to update. Pass --caption, --title, --clear-title, or --profile-hint.');
+      throw new Error('Nothing to update. Pass --caption, --title, --clear-title, --link, --clear-link, or --profile-hint.');
     }
     output(await request('PATCH', `/api/agent/v1/contents/${encodeURIComponent(parsed.id)}`, body));
   },
@@ -1530,6 +1536,10 @@ const COMMANDS = {
         usage: [
           `${usage('content:create --caption "..." --post-type video --storage-key <key> --size-bytes 1234')}`,
           `${usage('content:create --caption "..." --post-type text')}`,
+          `${usage('content:create --caption "..." --post-type text --link https://example.com/product')}`,
+        ],
+        notes: [
+          '--link (http or https) fills {{link}} in the caption templates of the accounts the content is later posted to.',
         ],
       },
       contents: {
@@ -1556,13 +1566,13 @@ const COMMANDS = {
         ],
       },
       'contents:update': {
-        summary: 'Edit saved content in place: caption, title, and/or profile hint. Media cannot be changed.',
+        summary: 'Edit saved content in place: caption, title, link, and/or profile hint. Media cannot be changed.',
         usage: [
           `${usage('contents:update --id <content_id> --caption "New caption"')}`,
           `${usage('contents:update --id <content_id> --clear-title --profile-hint "brand voice"')}`,
         ],
         notes: [
-          'Omitted fields stay unchanged. --clear-title empties the title and Po Once generates a new one from the caption.',
+          'Omitted fields stay unchanged. --clear-title empties the title and Po Once generates a new one from the caption. --clear-link removes the link.',
           'Scheduled posts made from this content without their own caption override publish the new caption; published posts are not changed.',
           'Returns the content in the same shape as contents:get. Show the user the new text and get confirmation first.',
         ],

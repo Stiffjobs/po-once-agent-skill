@@ -3,6 +3,21 @@
 Versions are identified by the `last-updated` date in `skills/po-once/SKILL.md`.
 Run `npx skills update po-once` to get the latest.
 
+## 2026-11-04
+
+- Contents can carry a link: `content:create --link <url>` and
+  `contents:update --link <url>` (`--clear-link` removes it). Only http and
+  https links up to 2048 characters are accepted. `contents` and
+  `contents:get` return it as `link`.
+- Workspaces can give each connected account a caption template in Po Once
+  using `{{title}}`, `{{caption}}` and `{{link}}`. Posts to that account
+  publish the filled template instead of the plain caption, and the template
+  wins over `--caption-override`. A line whose placeholders are all empty is
+  dropped with its label, so `Link: {{link}}` disappears when there is no
+  link. Templates are set in Po Once, not through the Agent API.
+- Captions are checked against each network's limit after templates are
+  applied; an over-limit caption rejects the whole `post` call.
+
 ## 2026-10-21
 
 - LINE Official Accounts can be posting targets. A post is a broadcast to
