@@ -3,6 +3,21 @@
 Versions are identified by the `last-updated` date in `skills/po-once/SKILL.md`.
 Run `npx skills update po-once` to get the latest.
 
+## 2026-11-13
+
+- Threads posts can be connected threads: `post --follow-ups '["Part 2","Part 3"]'`
+  takes a JSON array of up to 10 texts (500 characters each). After the post
+  publishes, each text is posted in order as a reply to the part before it,
+  so Threads shows one numbered chain (1/3, 2/3, 3/3). With `--first-comment`,
+  the first comment is part 2 and the follow-ups continue from it. Other
+  platforms skip follow-ups.
+- `posts:update --follow-ups '[...]'` replaces a scheduled Threads post's
+  follow-ups and `--clear-follow-ups` removes them. A non-empty list on a post
+  for another platform returns `400 INVALID_ARGUMENT`.
+- `posts:get` returns the texts as `task.followUps`, the replies already
+  published as `task.followUpIds`, and a failure as `task.followUpError`. A
+  failed reply stops the chain and does not change the post's publish status.
+
 ## 2026-11-04
 
 - Contents can carry a link: `content:create --link <url>` and

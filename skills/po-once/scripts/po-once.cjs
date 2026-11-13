@@ -492,6 +492,17 @@ function parseJsonValue(value, fieldName) {
   }
 }
 
+// A JSON array of strings, e.g. --follow-ups '["Part 2","Part 3"]' (texts can
+// hold commas, so a comma list would split them).
+function parseStringArray(value, fieldName) {
+  const parsed = parseJsonValue(value, fieldName);
+  if (parsed === undefined) return undefined;
+  if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== 'string')) {
+    throw new Error(`Field "${fieldName}" must be a JSON array of strings.`);
+  }
+  return parsed;
+}
+
 function parseScheduledTime(value) {
   if (value === undefined) return undefined;
   if (/^\d+$/.test(String(value))) return Number(value);
@@ -1037,6 +1048,7 @@ function buildPostPayload(parsed) {
     captionOverride: parsed['caption-override'],
     titleOverride: parsed['title-override'],
     firstComment: parsed['first-comment'],
+    followUps: parseStringArray(parsed['follow-ups'], 'follow-ups'),
     youtubePrivacyStatus: parsed['youtube-privacy-status'],
     tiktokPrivacyLevel: parsed['tiktok-privacy-level'],
     tiktokAllowComment: parseBoolean(parsed['tiktok-allow-comment'], 'tiktok-allow-comment'),
@@ -1381,7 +1393,7 @@ const COMMANDS = {
   'posts:update': async (args) => {
     const parsed = parseArgs(args);
     if (!parsed.id || parsed.id === true) {
-      throw new Error(`Usage: ${usage('posts:update --id <post_id> [--schedule <iso|ms>] [--timezone <iana>] [--caption-override "..." | --clear-caption-override] [--title-override "..." | --clear-title-override]')}`);
+      throw new Error(`Usage: ${usage('posts:update --id <post_id> [--schedule <iso|ms>] [--timezone <iana>] [--caption-override "..." | --clear-caption-override] [--title-override "..." | --clear-title-override] [--follow-ups \'["..."]\' | --clear-follow-ups]')}`);
     }
     const stringFlag = (name) => {
       if (parsed[name] === undefined) return undefined;
@@ -1396,14 +1408,19 @@ const COMMANDS = {
     if (parsed['title-override'] !== undefined && parsed['clear-title-override']) {
       throw new Error('Use either --title-override or --clear-title-override, not both.');
     }
+    if (parsed['follow-ups'] !== undefined && parsed['clear-follow-ups']) {
+      throw new Error('Use either --follow-ups or --clear-follow-ups, not both.');
+    }
+    if (parsed['follow-ups'] === true) throw new Error('Flag --follow-ups needs a JSON array. Use --clear-follow-ups to remove them.');
     const body = pickDefinedFields({
       scheduledTime: parseScheduledTime(parsed[scheduleFlag]),
       scheduledTimezone: stringFlag('timezone'),
       captionOverride: parsed['clear-caption-override'] ? '' : stringFlag('caption-override'),
       titleOverride: parsed['clear-title-override'] ? '' : stringFlag('title-override'),
+      followUps: parsed['clear-follow-ups'] ? [] : parseStringArray(parsed['follow-ups'], 'follow-ups'),
     });
     if (Object.keys(body).length === 0) {
-      throw new Error('Nothing to update. Pass --schedule, --timezone, --caption-override, --title-override, --clear-caption-override, or --clear-title-override.');
+      throw new Error('Nothing to update. Pass --schedule, --timezone, --caption-override, --title-override, --follow-ups, --clear-caption-override, --clear-title-override, or --clear-follow-ups.');
     }
     output(await request('PATCH', `/api/agent/v1/posts/${encodeURIComponent(parsed.id)}`, body));
   },
@@ -1603,8 +1620,10 @@ const COMMANDS = {
         usage: [
           `${usage('post --content-id <id> --accounts <id,id> --mode scheduled --schedule 2026-04-17T09:00:00Z --timezone Asia/Taipei')}`,
           `${usage('post --content-id <id> --accounts <id,id> --mode direct --caption-override "..." --first-comment "..."')}`,
+          `${usage('post --content-id <id> --accounts <threads_id> --mode direct --follow-ups \'["Part 2","Part 3"]\'')}`,
         ],
         notes: [
+          '--follow-ups is a JSON array of up to 10 texts (500 characters each), posted in order as replies under the post on Threads so they read as one connected thread. Other platforms skip them.',
           'Confirm the accounts, caption, and timing with the user before running post. Pass the user\'s IANA --timezone for scheduled posts; the helper sends UTC when it is omitted.',
           'A rerun creates new posts. After a timeout or failure, check posts before running post again.',
         ],
@@ -1615,11 +1634,13 @@ const COMMANDS = {
           `${usage('posts:update --id <post_id> --schedule 2026-04-18T09:00:00Z --timezone Asia/Taipei')}`,
           `${usage('posts:update --id <post_id> --caption-override "New caption"')}`,
           `${usage('posts:update --id <post_id> --clear-caption-override --clear-title-override')}`,
+          `${usage('posts:update --id <threads_post_id> --follow-ups \'["Part 2","Part 3"]\'')}`,
         ],
         notes: [
           'Only posts with status scheduled (not started processing) can be edited; published, failed, or publishing posts return 409 POST_NOT_EDITABLE.',
           '--schedule (alias --scheduled-time) is an ISO timestamp or Unix milliseconds and must be in the future. Pass --timezone (IANA) with it so the post records the user\'s timezone.',
           'Overrides apply to this one post only; --clear-caption-override / --clear-title-override fall back to the content\'s own caption/title.',
+          '--follow-ups replaces the post\'s Threads follow-up replies with a JSON array (up to 10, 500 characters each); --clear-follow-ups removes them. Non-Threads posts reject a non-empty list with 400.',
           'Returns the updated post in the same shape as posts:get. Confirm the new time or text with the user first.',
         ],
       },

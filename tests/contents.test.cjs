@@ -101,6 +101,20 @@ test('posts the content to the accounts with no retry or per-account fields', as
   });
 });
 
+test('sends follow-ups as a JSON array and rejects anything else before a request', async () => {
+  const result = await run([
+    'post', ...postFlags, '--mode', 'direct', '--follow-ups', '["Part 2, with a comma","Part 3"]',
+  ], { batchId: 'batch-a', postIds: ['post-a'] });
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(JSON.parse(result.requests[0].body).followUps, ['Part 2, with a comma', 'Part 3']);
+
+  for (const value of ['Part 2', '{"a":1}', '[1,2]']) {
+    const bad = await run(['post', ...postFlags, '--mode', 'direct', '--follow-ups', value]);
+    assert.equal(bad.requests.length, 0, value);
+    assert.notEqual(bad.exitCode, 0, value);
+  }
+});
+
 test('edits only the given content fields, and --clear-title sends an empty title', async () => {
   const edit = await run(['contents:update', '--id', 'content/a', '--caption', 'New caption', '--profile-hint', 'warm']);
   assert.equal(edit.exitCode, 0);
