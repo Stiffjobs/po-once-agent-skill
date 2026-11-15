@@ -3,6 +3,21 @@
 Versions are identified by the `last-updated` date in `skills/po-once/SKILL.md`.
 Run `npx skills update po-once` to get the latest.
 
+## 2026-11-14
+
+- The Free plan now includes the agent API with 1 API key. Starter and Pro
+  have unlimited keys. Free keeps its other limits: 30 posts a month, 500 MB
+  of storage, 1 connected account.
+- A Free organization that kept several keys from a paid plan can use only its
+  oldest key. The others return `402 API_KEY_LIMIT_EXCEEDED`; the skill tells
+  the agent to stop and ask the user to use the oldest key, revoke the extras,
+  or upgrade. Hosted MCP signed in through the browser does not use API keys
+  and is not affected.
+- `SUBSCRIPTION_REQUIRED` guidance no longer says the API needs Starter or Pro.
+- On Free, only the oldest active keyword monitor is searched, at most once
+  every 24 hours. `keyword-monitors` can still list other monitors as active;
+  the skill tells the agent to say they are not being searched.
+
 ## 2026-11-13
 
 - Threads posts can be connected threads: `post --follow-ups '["Part 2","Part 3"]'`
